@@ -30,6 +30,9 @@ train:  ## Train, compare, tune, and register the model
 evaluate:  ## Cross-validate and write metrics and plots to artifacts/
 	$(BIN)/python -m src.models.evaluate
 
+mlflow:  ## Open the MLflow UI on http://localhost:5000
+	$(BIN)/mlflow ui --backend-store-uri ./mlflow --port 5000
+
 serve:  ## Run the API locally with reload
 	$(BIN)/uvicorn src.api.app:app --host 0.0.0.0 --port $(PORT) --reload
 

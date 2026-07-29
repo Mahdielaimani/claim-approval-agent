@@ -117,8 +117,16 @@ models:
 
 tuning:
   library: optuna
-  optimize_metric: f1_declined   # accuracy is unusable at 5.36:1 — a constant
-                                 # classifier scores 84.3%
+  # PR-AUC, not F1, and the reason is not cosmetic. Scoring F1 inside a trial needs a
+  # threshold, and the only cheap one is fitted on the model's own training predictions —
+  # which tree models separate almost perfectly, so it does not transfer to validation.
+  # Measured on 20 trials: tuning Random Forest against F1 made it worse (0.336 -> 0.317),
+  # while tuning against PR-AUC improved it (0.336 -> 0.344).
+  #
+  # PR-AUC is threshold-free, so the search optimises ranking quality only, and the
+  # operating threshold is chosen afterwards inside the honest nested cross-validation.
+  # Selection between models is still reported on F1-Declined.
+  optimize_metric: pr_auc
   direction: maximize
   n_trials: 50
   tune_top_n: 3                  # only the three strongest baselines are tuned
@@ -136,4 +144,7 @@ mlflow:
   tracking_uri: ./mlflow
   experiment_name: claim-approval-agent
   register_model: true
-  model_name: claim-approval-xgboost
+  # Deliberately algorithm-agnostic. Naming the registry entry after the algorithm was a
+  # mistake the benchmark exposed: the expected winner was XGBoost and Random Forest won.
+  # The serving contract is "the model in Production", not "the XGBoost model".
+  model_name: claim-approval-model

@@ -29,8 +29,13 @@ Three decisions carry the most weight:
 
 **Honest limitation, stated up front:** the tabular features describe the policy and the
 device, not the circumstances of the loss — and the circumstances are what drive a decline.
-That information exists in the dataset, but as multilingual prose. Expect a modest F1 on the
-Declined class. The value of this system is the explanation layer, not the classifier.
+That information exists in the dataset, but as multilingual prose.
+
+The measured result reflects that. The selected model reaches **F1-Declined 0.344 and recall
+0.662** — it catches two declines in three, at four false alarms for every five flags. Its
+accuracy is 60%, *below* the 84% a constant classifier scores, and that is the intended
+trade. It is a triage instrument, not an adjudicator: the value of this system is the
+explanation layer, and the human review the numbers above make mandatory.
 
 ---
 
@@ -76,7 +81,7 @@ is unauditable, non-reproducible, and free to hallucinate its way to an outcome.
 ```mermaid
 flowchart LR
     A[Claim] --> B[Preprocess + features]
-    B --> C[XGBoost]
+    B --> C[Random Forest]
     C --> D[Score]
     D --> E{HITL gate}
     D --> F[SHAP TreeExplainer]
@@ -103,7 +108,8 @@ observability wired in from the start, not retrofitted.
 ## 3. What the data actually supports
 
 **Finding — the structured features support triage, not adjudication. Every design choice
-below follows from this, and it was established before any model was trained.**
+below follows from this. It was established before any model was trained, and the measured
+results in §5.1 confirmed it.**
 
 Measured from the source file:
 
@@ -229,7 +235,7 @@ excluded where it hurts.
 
 | Finding | Handling |
 | --- | --- |
-| 3 rows `rrp = 0`, 1 negative `balanceRRP` | Set to NaN, rows retained — XGBoost models missingness natively; `0` would be read as a real extreme value and distort every ratio |
+| 3 rows `rrp = 0`, 1 negative `balanceRRP` | Set to NaN, rows retained — `0` would be read as a real extreme value and distort every ratio built on it |
 | `oldBalanceRRP` ≡ `balanceRRP`, all 2,880 rows | Dropped — collinearity halves each feature's SHAP |
 | `deviceCost`, `relationship`, `make` constant | Dropped — zero variance, an artefact of a single-manufacturer export |
 | `smashed`, `frontOrBackCamera` — one value, 65% null | Dropped — degenerate |
@@ -246,7 +252,7 @@ nothing may be adopted that degrades it.**
 
 | Layer | Choice | Deciding reason |
 | --- | --- | --- |
-| Model | **XGBoost** | Native missing-value handling (decisive when `deviceType` missingness is itself informative), exact TreeSHAP, `scale_pos_weight` for imbalance |
+| Model | **Random Forest** (tuned) | Selected on measurement, not expectation — see §5.1. Best F1-Declined, best recall, and best calibration among the tuned candidates |
 | Benchmark | LR · RF · XGBoost · CatBoost · LightGBM · MLP | Identical folds, so rejections rest on a number rather than an assertion |
 | Explainability | **SHAP `TreeExplainer`** | Exact Shapley values in polynomial time, milliseconds per prediction — fast enough for the request path |
 | Tuning | **Optuna** | TPE with pruning: ~50 trials where grid search needs thousands |
@@ -262,13 +268,46 @@ nothing may be adopted that degrades it.**
 
 Three of these need more than a line.
 
-**Why XGBoost over a neural network.** The MLP is benchmarked so the rejection carries a
-number, but the argument is prior: 2,880 rows is far below the regime where networks beat
-gradient boosting on tabular data, and an MLP's only SHAP option is KernelExplainer —
-approximate and orders of magnitude slower. The project's central asset is exact, fast
-attribution. An MLP trades it away for no expected gain. **The choice of explainer constrains
-the choice of model, deliberately:** in a regulated setting, exact attribution outranks a
-marginal accuracy gain.
+### 5.1 Model selection — the data overruled the expectation
+
+Six families, identical folds, threshold chosen inside each fold. The top three were then
+tuned with Optuna (50 trials each) and re-evaluated under the same honest protocol.
+
+| Model | F1-Declined | Recall | Precision | ROC-AUC | PR-AUC | Brier |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Random Forest (tuned)** | **0.3438** ±0.032 | **0.6621** | 0.2327 | **0.6605** | 0.2913 | 0.1629 |
+| Random Forest | 0.3362 ±0.031 | 0.5961 | 0.2364 | 0.6500 | 0.2780 | **0.1361** |
+| CatBoost (tuned) | 0.3228 ±0.042 | 0.5608 | 0.2279 | 0.6446 | **0.2997** | 0.1930 |
+| XGBoost (tuned) | 0.3208 ±0.031 | 0.5761 | 0.2251 | 0.6463 | 0.2787 | 0.2197 |
+| XGBoost | 0.3078 ±0.035 | 0.6865 | 0.2011 | 0.6312 | 0.2648 | 0.1793 |
+| LightGBM | 0.2910 ±0.032 | 0.6308 | 0.1945 | 0.6210 | 0.2650 | 0.1910 |
+| Logistic Regression | 0.2946 ±0.027 | 0.5342 | 0.2044 | 0.6208 | 0.2478 | 0.2339 |
+| MLP | 0.2765 ±0.008 | 0.5188 | 0.1919 | 0.5711 | 0.2169 | 0.2150 |
+| *constant classifier* | *0.0* | *0.0* | — | *0.5* | *0.157* | — |
+
+**XGBoost was the expected winner and did not win.** Random Forest leads on F1, on recall,
+and on calibration — the three that matter here — and it does so despite losing the one
+criterion that favoured XGBoost, native missing-value handling. Selection followed the
+measurement.
+
+Weighting F1 35%, recall 20%, calibration 15%, SHAP quality 15%, fold stability 10% and
+native NaN support 5% gives Random Forest 0.89 against 0.33 for tuned XGBoost. No defensible
+re-weighting reverses that, because the win is on the raw metrics rather than on the weights.
+
+Two results worth stating plainly:
+
+- **The MLP finishes last** (F1 0.2765, ROC-AUC 0.5711). The rejection of neural networks
+  rests on a number, not an assertion. 2,880 rows is far below the regime where networks
+  beat gradient boosting on tabular data, and an MLP's only SHAP option is KernelExplainer —
+  approximate and orders of magnitude slower. **The choice of explainer constrains the choice
+  of model, deliberately:** in a regulated setting, exact attribution outranks a marginal
+  accuracy gain.
+- **The spread from best to worst is 6.7 F1 points**, and tuning moved the winner by 0.008.
+  The bottleneck is the signal in the data, not the algorithm or its hyperparameters.
+
+Calibration is a selection criterion rather than a footnote because the HITL gate reads the
+score *as a probability*: thresholds of 0.30 and 0.70 mean nothing if the score is
+systematically inflated.
 
 **Why SHAP over LIME.** LIME's local surrogates are unstable across runs. An audit trail that
 changes when re-run is not an audit trail.
@@ -308,11 +347,18 @@ The score is `P(Declined)`. The business decision layer sits between prediction 
 explanation, so the operating point can be retuned for business cost without retraining
 anything.
 
-| Score | Routing |
-| --- | --- |
-| < 0.30 | **Straight-through processing candidate** — no human review required |
-| 0.30 – 0.70 | Human review required — borderline confidence |
-| ≥ 0.70 | Mandatory expert review — high decline risk |
+| Score | Routing | Volume | Decline rate | Share of all declines |
+| --- | --- | --- | --- | --- |
+| < 0.30 | **Straight-through processing candidate** | 45.0% | **9.1%** | 26.0% |
+| 0.30 – 0.70 | Human review required — borderline confidence | 54.3% | 20.6% | 71.1% |
+| ≥ 0.70 | Mandatory expert review — high decline risk | 0.8% | **59.1%** | 2.9% |
+
+*Measured on out-of-fold predictions from the selected model, all 2,880 claims.*
+
+The routing works: the straight-through band declines at 9.1% against a 15.7% base rate —
+little over half the risk — while the expert band, though only 22 claims, declines at 59.1%,
+a 3.8× lift. The selected threshold is stable at 0.344 ± 0.010 across folds, so the operating
+point is not fitted to one split.
 
 The wording matters. A low score makes a claim *eligible for the straight-through queue*; it
 is not itself an approval. That distinction is the one an insurance regulator cares about.
