@@ -1,0 +1,102 @@
+# GenAI / LLM configuration. Consumed by src/genai/.
+# All provider access goes through LiteLLM so a provider change is a config
+# change, never a code change.
+
+providers:
+  primary:
+    model: gpt-4o-mini
+    # Chosen for reliable structured-JSON adherence at low cost. The pipeline
+    # depends on schema compliance far more than on prose quality.
+    api_key_env: OPENAI_API_KEY
+  fallback:
+    model: gemini/gemini-2.0-flash
+    # A different vendor, not just a different model — a shared outage would
+    # defeat the purpose of having a fallback at all.
+    api_key_env: GEMINI_API_KEY
+
+generation:
+  temperature: 0.1        # near-deterministic; comparable claims must get
+                          # comparable explanations. Creative variance is a
+                          # defect here, not a feature.
+  max_tokens: 1024
+  timeout_seconds: 20
+  num_retries: 2
+  # LiteLLM switches to the fallback automatically on these conditions.
+  fallback_on: [timeout, rate_limit, api_error, content_filter]
+
+mock_mode:
+  # Active when no provider key is set. Returns deterministic structured JSON so
+  # tests and CI run with no network and no cost.
+  enabled_when_no_api_key: true
+
+prompts:
+  template_dir: ./prompts
+  version: v1.0.0
+  templates:
+    customer: customer.jinja2
+    adjuster: adjuster.jinja2
+    auditor:  auditor.jinja2
+  system: system.jinja2
+
+personas:
+  customer:
+    top_n_shap: 5
+    show_score: false           # a probability tells a customer nothing useful
+                                # and invites argument about the number
+    show_shap_values: false
+    show_next_steps: true
+    show_risk_flags: false
+    include_issue_desc: false
+    reading_level: simple
+    tone: empathetic, clear, non-accusatory
+  adjuster:
+    top_n_shap: 10
+    show_score: true
+    show_shap_values: true
+    show_next_steps: false
+    show_risk_flags: true
+    include_issue_desc: true
+    tone: professional, factual, analytical
+  auditor:
+    top_n_shap: 15
+    show_score: true
+    show_shap_values: true
+    show_next_steps: false
+    show_risk_flags: true
+    include_issue_desc: true
+    require_versions: true      # model version, prompt version, data lineage
+    tone: formal, compliance-oriented
+
+validation:
+  # Runs on every LLM response before it leaves the service.
+  require_json: true
+  strip_markdown_fences: true
+  required_fields: [summary, key_factors]
+  # Terms that must never reach a customer response.
+  customer_blocklist:
+    [shap, shapley, probability, confidence score, model predicts, threshold,
+     xgboost, feature importance, classifier, training data]
+  check_sentiment_consistency: true   # a declined claim must not read as approved
+  check_numeric_grounding: true       # every number must appear in the input or
+                                      # the SHAP output
+  max_retries_on_failure: 1
+
+observability:
+  langfuse:
+    enabled_when_keys_present: true
+    trace_name: claim-explanation
+    capture: [prompt, response, model, tokens, cost, latency, persona, error]
+
+evaluation:
+  deepeval:
+    metrics: [faithfulness, answer_relevancy, hallucination]
+    thresholds:
+      faithfulness: 0.80
+      answer_relevancy: 0.75
+      hallucination: 0.20    # lower is better
+  promptfoo:
+    # Scoped deliberately: not prompt A/B, but proof that the fallback provider
+    # behaves like the primary. An unvalidated fallback is untested code sitting
+    # on the critical path.
+    purpose: provider_equivalence
+    config: ./evaluation/promptfoo.yaml

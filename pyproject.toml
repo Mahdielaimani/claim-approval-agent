@@ -1,0 +1,23 @@
+[tool.ruff]
+# 100 rather than the 88 default: the comment convention caps at 100, and the data
+# pipeline's column names are long enough that 88 forces unhelpful wrapping.
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
+ignore = [
+    "E501",   # line length is enforced by the formatter, not the linter
+    "B008",   # FastAPI's Depends() in defaults is the framework's own idiom
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Private helpers are exercised directly to test one derivation step in isolation.
+"tests/*" = ["SLF001"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_configs = true
+warn_redundant_casts = true
+no_implicit_optional = true

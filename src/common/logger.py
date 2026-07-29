@@ -8,7 +8,7 @@ import logging
 import os
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 # Redacted centrally because a per-call-site rule is one someone eventually forgets.
@@ -18,16 +18,33 @@ _PII_FIELDS = frozenset(
 
 _STANDARD_RECORD_ATTRS = frozenset(
     {
-        "name", "msg", "args", "levelname", "levelno", "pathname", "filename",
-        "module", "exc_info", "exc_text", "stack_info", "lineno", "funcName",
-        "created", "msecs", "relativeCreated", "thread", "threadName",
-        "processName", "process", "taskName", "asctime", "message",
+        "name",
+        "msg",
+        "args",
+        "levelname",
+        "levelno",
+        "pathname",
+        "filename",
+        "module",
+        "exc_info",
+        "exc_text",
+        "stack_info",
+        "lineno",
+        "funcName",
+        "created",
+        "msecs",
+        "relativeCreated",
+        "thread",
+        "threadName",
+        "processName",
+        "process",
+        "taskName",
+        "asctime",
+        "message",
     }
 )
 
-_request_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "request_id", default=None
-)
+_request_id: contextvars.ContextVar[str | None] = contextvars.ContextVar("request_id", default=None)
 
 
 def bind_request_id(request_id: str | None = None) -> str:
@@ -47,7 +64,7 @@ def _redact(value: Any, key: str | None = None) -> Any:
         return "[REDACTED]"
     if isinstance(value, dict):
         return {k: _redact(v, k) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         return [_redact(v) for v in value]
     return value
 
@@ -57,9 +74,9 @@ class JsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
-            "timestamp": datetime.fromtimestamp(
-                record.created, tz=timezone.utc
-            ).isoformat(timespec="milliseconds"),
+            "timestamp": datetime.fromtimestamp(record.created, tz=UTC).isoformat(
+                timespec="milliseconds"
+            ),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
