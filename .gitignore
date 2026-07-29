@@ -1,0 +1,72 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+venv/
+.venv/
+env/
+ENV/
+
+# ---- Tooling / caches ----
+.pytest_cache/
+.ruff_cache/
+.deepeval/
+.promptfoo/
+junit*.xml
+.mypy_cache/
+.ipynb_checkpoints/
+.coverage
+htmlcov/
+coverage.xml
+
+# ---- Secrets ----
+.env
+.env.local
+*.pem
+*.key
+
+# ---- Local scratch ----
+.claude/
+CLAUDE.md
+notes.md
+
+# ---- Data (proprietary / not redistributed) ----
+data/*
+!data/.gitkeep
+
+# ---- Model artifacts & generated outputs ----
+# The serialised model is 6.8 MB and regenerable; the card and the comparison reports
+# are the evidence behind the model choice, and 02_model_comparison.ipynb reads them.
+artifacts/models/*
+!artifacts/models/.gitkeep
+!artifacts/models/model_card.json
+artifacts/plots/*
+!artifacts/plots/.gitkeep
+artifacts/reports/*
+!artifacts/reports/.gitkeep
+!artifacts/reports/model_comparison.csv
+!artifacts/reports/best_params.json
+*.pkl
+*.joblib
+*.cbm
+*.ubj
+*.onnx
+
+# ---- MLflow local tracking ----
+mlflow/
+mlruns/
+mlartifacts/
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
