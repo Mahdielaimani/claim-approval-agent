@@ -36,6 +36,17 @@ def _pipeline(request: Request) -> Any:
     return pipeline
 
 
+def _monitor(request: Request) -> Any:
+    """The LLM ledger, attached at startup."""
+    monitor = getattr(request.app.state, "llm_monitor", None)
+    if monitor is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Monitoring not initialised.",
+        )
+    return monitor
+
+
 @router.get(
     "/health",
     response_model=HealthResponse,
@@ -77,7 +88,18 @@ async def explain(request: Request, payload: ExplainRequest) -> dict[str, Any]:
         persona=payload.persona.value,
         claim_id=payload.claim_id,
     )
+    _monitor(request).record_explanation(explanation)
     return explanation.as_dict()
+
+
+@router.get(
+    "/metrics",
+    summary="LLM spend, provider health and latency over the last 30 days",
+    tags=["Monitoring"],
+)
+async def metrics(request: Request, window_hours: int = 720) -> dict[str, Any]:
+    """Aggregate the recorded LLM calls against the configured thresholds."""
+    return _monitor(request).snapshot(window_hours).as_dict()
 
 
 @router.get(

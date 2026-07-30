@@ -40,6 +40,16 @@ _REVIEWED_ASSERTIONS = re.compile(
     re.IGNORECASE,
 )
 
+# The mirror of the above, and the gap it left: promising a review that is not scheduled.
+# Found by the DeepEval faithfulness metric on a straight-through claim, where the model
+# wrote "someone will review your claim" against a context saying no review was required.
+_PROMISED_REVIEW = re.compile(
+    r"\bwill be (?:reviewed|assessed|examined|looked at)\b"
+    r"|\b(?:someone|somebody|our team|a (?:team member|colleague|specialist|person)"
+    r"|an? (?:adjuster|expert|agent|assessor)) will (?:review|look at|assess|examine|check)\b",
+    re.IGNORECASE,
+)
+
 
 @dataclass
 class ValidationIssue:
@@ -224,6 +234,15 @@ class OutputValidator:
                         match.group(0),
                     )
                 )
+        elif match := _PROMISED_REVIEW.search(text):
+            result.issues.append(
+                ValidationIssue(
+                    "sentiment_consistency",
+                    ERROR,
+                    "Response promises a human review that is not scheduled.",
+                    match.group(0),
+                )
+            )
 
     def _check_grounding(
         self, payload: dict[str, Any], context: dict[str, Any], result: ValidationResult

@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     )
 
     groq_api_key: str = ""
+    # Quota headroom, not a fallback: same vendor, so these survive an exhausted token budget
+    # but not an outage. Measured separate buckets. OpenAI and Gemini are the real fallbacks.
+    groq_api_key_2: str = ""
+    groq_api_key_3: str = ""
     openai_api_key: str = ""
     gemini_api_key: str = ""
     llm_primary_model: str = "groq/llama-3.3-70b-versatile"
@@ -55,7 +59,15 @@ class Settings(BaseSettings):
     def llm_mock_mode(self) -> bool:
         """True when no provider key is configured."""
         # Offline mode keeps CI deterministic and free of provider cost.
-        return not any((self.groq_api_key, self.openai_api_key, self.gemini_api_key))
+        return not any(
+            (
+                self.groq_api_key,
+                self.groq_api_key_2,
+                self.groq_api_key_3,
+                self.openai_api_key,
+                self.gemini_api_key,
+            )
+        )
 
     def api_key_for(self, env_name: str) -> str:
         """Look up a provider key by the env var name declared in configs/llm.yaml."""
@@ -107,3 +119,8 @@ def get_llm_config() -> dict[str, Any]:
 def get_api_config() -> dict[str, Any]:
     """API and human-in-the-loop configuration."""
     return load_yaml_config("api")
+
+
+def get_monitoring_config() -> dict[str, Any]:
+    """Drift and LLM monitoring thresholds."""
+    return load_yaml_config("monitoring")

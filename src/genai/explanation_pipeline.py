@@ -77,6 +77,11 @@ class Explanation:
     retried: bool = False
     llm_latency_ms: int = 0
     total_latency_ms: int = 0
+    # Carried through for the cost ledger, not for the response: a budget monitor that
+    # cannot see tokens reports zero spend forever and never fires.
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cost_usd: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
         """Serialisable form for the /explain response, filtered for this persona."""
@@ -295,6 +300,9 @@ class ExplanationPipeline:
                     validation=last_validation,
                     retried=attempt > 1,
                     llm_latency_ms=response.latency_ms,
+                    prompt_tokens=response.prompt_tokens,
+                    completion_tokens=response.completion_tokens,
+                    cost_usd=response.cost_usd,
                 )
 
             logger.warning(

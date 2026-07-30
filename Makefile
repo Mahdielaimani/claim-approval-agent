@@ -39,11 +39,14 @@ serve:  ## Run the API locally with reload
 test:  ## Run the pytest suite
 	$(BIN)/pytest tests/ -v
 
-eval-llm:  ## DeepEval: faithfulness, relevancy, hallucination
-	$(BIN)/pytest tests/evaluation/ -v -m llm_eval
+eval-llm:  ## DeepEval: faithfulness, relevancy, hallucination, persona adherence
+	$(BIN)/pytest -m llm_eval -v
 
-eval-providers:  ## Promptfoo: verify the fallback provider matches the primary
-	npx promptfoo@latest eval -c evaluation/promptfoo.yaml
+eval-providers:  ## Promptfoo: verify the fallback providers match the primary
+	PROMPTFOO_REQUEST_TIMEOUT_MS=20000 npx promptfoo@latest eval -c evaluation/promptfoo.yaml
+
+drift-reference:  ## Freeze the training distribution the drift monitor compares against
+	$(BIN)/python -c "from src.monitoring.drift import build_reference; print(build_reference())"
 
 lint:  ## Lint and check formatting
 	$(BIN)/ruff check src/ tests/

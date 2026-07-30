@@ -50,6 +50,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             f"Cannot start without a registered model and fitted transformers: {exc}"
         ) from exc
 
+    from src.monitoring.llm_monitor import LLMMonitor
+
+    app.state.llm_monitor = LLMMonitor()
+
     yield
     app.state.pipeline = None
 

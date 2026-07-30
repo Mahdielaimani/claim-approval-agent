@@ -1,0 +1,40 @@
+# Post-deployment monitoring. Consumed by src/monitoring/.
+
+drift:
+  # Population Stability Index. Thresholds are the credit-scoring convention (Siddiqi),
+  # not values derived from this dataset — they are a triage aid, not a decision rule.
+  # Any breach opens an investigation; none of them retrains a model on its own.
+  thresholds:
+    watch: 0.10       # worth looking at
+    alarm: 0.20       # investigate before trusting the next batch
+
+  # Quantile bins on the reference distribution. Ten is conventional and, at 2880 training
+  # rows, already puts only ~288 rows in each — finer bins would measure sampling noise.
+  n_bins: 10
+
+  # PSI is a ratio of proportions, so a small batch produces large values from nothing.
+  # Below this, the report refuses to score rather than raise a plausible-looking alarm.
+  min_rows: 200
+
+  # Features excluded from drift scoring, with the reason each is excluded.
+  ignore:
+    - issue_desc_length      # tracked separately: it moves with language mix, not risk
+    - issue_desc_word_count
+
+  # The distribution that matters most is not any single feature but the score itself:
+  # every feature can stay in range while the model's output shifts.
+  monitor_prediction_distribution: true
+
+llm:
+  # Budget alarm before the bill, not after it.
+  monthly_budget_usd: 20.0
+  alert_at_budget_fraction: 0.80
+
+  # A rising fallback rate means the primary provider is degrading. It is the earliest
+  # signal available, and it costs nothing to collect.
+  fallback_rate_alarm: 0.10
+
+  # Template fallback means no LLM answered at all. One is an incident, not a metric.
+  template_fallback_alarm: 0.01
+
+  latency_p95_ms: 5000

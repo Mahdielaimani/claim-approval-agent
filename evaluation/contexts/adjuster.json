@@ -1,0 +1,109 @@
+{
+  "persona": "adjuster",
+  "tone": "professional, factual, analytical",
+  "reading_level": "standard",
+  "claim_id": "CLM-EQUIV-001",
+  "decision": "under review",
+  "requires_human_review": true,
+  "outcome_statement": "NO DECISION HAS BEEN ISSUED — the claim is NOT declined and NOT approved. The score exceeding the threshold routes this claim to a human reviewer; it is not itself a decision. Any adverse outcome requires a human.",
+  "claim": {
+    "claimType": "Accidental Damage",
+    "deviceType": "SMARTPHONES",
+    "coverage": "ADLD",
+    "policyStatus": "Active",
+    "country": "NL",
+    "channel": "Online Portal",
+    "rrp": 1449.0,
+    "excessFee": 59.0,
+    "balanceRRP": 1391.04,
+    "productCode": "NLADLD12M"
+  },
+  "factors": [
+    {
+      "feature": "fee_to_rrp_ratio",
+      "label": "Excess as a share of device value",
+      "value": 0.0407,
+      "shap_value": -0.0441,
+      "direction": "reduces decline risk",
+      "unit": ""
+    },
+    {
+      "feature": "productCode_freq",
+      "label": "Product code frequency in the portfolio",
+      "value": 0.0,
+      "shap_value": 0.0346,
+      "direction": "increases decline risk",
+      "unit": ""
+    },
+    {
+      "feature": "touchScreen",
+      "label": "Touchscreen diagnostic",
+      "value": 0.0,
+      "shap_value": -0.0334,
+      "direction": "reduces decline risk",
+      "unit": ""
+    },
+    {
+      "feature": "diag_zeros",
+      "label": "Diagnostic checks returning 0",
+      "value": 4.0,
+      "shap_value": -0.0292,
+      "direction": "reduces decline risk",
+      "unit": ""
+    },
+    {
+      "feature": "issue_desc_length",
+      "label": "Length of the reported description",
+      "value": 401.0,
+      "shap_value": 0.0251,
+      "direction": "increases decline risk",
+      "unit": "characters"
+    },
+    {
+      "feature": "excessFee",
+      "label": "Excess fee (EUR)",
+      "value": 59.0,
+      "shap_value": -0.0232,
+      "direction": "reduces decline risk",
+      "unit": "EUR"
+    },
+    {
+      "feature": "rrp",
+      "label": "Device value (RRP, EUR)",
+      "value": 1449.0,
+      "shap_value": -0.0228,
+      "direction": "reduces decline risk",
+      "unit": "EUR"
+    },
+    {
+      "feature": "balanceRRP",
+      "label": "Outstanding device balance (EUR)",
+      "value": 1391.04,
+      "shap_value": -0.0213,
+      "direction": "reduces decline risk",
+      "unit": "EUR"
+    },
+    {
+      "feature": "diag_ones",
+      "label": "Diagnostic checks returning 1",
+      "value": 5.0,
+      "shap_value": -0.0189,
+      "direction": "reduces decline risk",
+      "unit": ""
+    },
+    {
+      "feature": "is_mandatory_policy",
+      "label": "Mandatory policy",
+      "value": 0.0,
+      "shap_value": -0.0162,
+      "direction": "reduces decline risk",
+      "unit": ""
+    }
+  ],
+  "score": 0.3015,
+  "threshold": 0.344,
+  "base_value": 0.4988,
+  "risk_flags": [],
+  "human_review_reason": "borderline_confidence",
+  "issue_desc": "Ik was onderweg naar mijn werk toen ik mijn telefoon uit mijn jaszak haalde om de tijd te bekijken. Op dat moment stootte iemand tegen mij aan op het perron en viel het toestel op de betonnen vloer. Het scherm is op meerdere plaatsen gebarsten en reageert niet meer op aanraking in de linkerbovenhoek. De behuizing heeft ook een diepe kras aan de zijkant opgelopen. Ik heb het toestel direct uitgezet."
+}

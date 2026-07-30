@@ -15,6 +15,21 @@ ignore = [
 # Private helpers are exercised directly to test one derivation step in isolation.
 "tests/*" = ["SLF001"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# List form, not a string: pytest splits a string addopts with shlex in non-POSIX mode on
+# Windows, which keeps the quotes and silently fails to deselect anything.
+# llm_eval is opt-in because real provider calls cost money, take seconds, and are graded
+# by a judge that is itself sampled — run it before a release, not on every commit.
+addopts = ["-q", "--strict-markers", "-m", "not llm_eval"]
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "llm_eval: semantic evaluation that calls live LLM providers",
+    "integration: exercises more than one layer",
+]
+filterwarnings = ["ignore::DeprecationWarning:pkg_resources.*"]
+
 [tool.mypy]
 python_version = "3.12"
 ignore_missing_imports = true

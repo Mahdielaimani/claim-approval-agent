@@ -1,0 +1,38 @@
+{
+  "persona": "customer",
+  "tone": "empathetic, clear, non-accusatory",
+  "reading_level": "simple",
+  "claim_id": "CLM-EQUIV-001",
+  "decision": "under review",
+  "requires_human_review": true,
+  "outcome_statement": "NO DECISION HAS BEEN ISSUED — the claim is NOT declined and NOT approved. The score exceeding the threshold routes this claim to a human reviewer; it is not itself a decision. Any adverse outcome requires a human.",
+  "claim": {
+    "claimType": "Accidental Damage",
+    "deviceType": "SMARTPHONES",
+    "coverage": "ADLD",
+    "policyStatus": "Active"
+  },
+  "factors": [
+    {
+      "factor": "how common your policy type is",
+      "direction": "increases decline risk"
+    },
+    {
+      "factor": "the description you provided",
+      "direction": "increases decline risk"
+    },
+    {
+      "factor": "the country your policy is held in",
+      "direction": "increases decline risk"
+    },
+    {
+      "factor": "how large your excess is compared with the device's value",
+      "direction": "reduces decline risk"
+    },
+    {
+      "factor": "the condition of the screen",
+      "direction": "reduces decline risk"
+    }
+  ],
+  "next_steps_expected": true
+}

@@ -17,6 +17,16 @@ providers:
     api_key_env: GROQ_API_KEY
     # First because it is free and fast. Llama 3.3 70B holds the persona constraints
     # and the JSON schema reliably at temperature 0.1.
+  # Quota headroom, not fallbacks. Groq meters tokens per day and the free tier runs out well
+  # before the model does. Measured 30/07: burning 1 500 tokens on key 3 left key 2 untouched,
+  # so these really are separate buckets. They survive an exhausted budget; they do not
+  # survive a Groq outage, which is what the two other vendors below are for.
+  - name: groq_reserve_2
+    model: groq/llama-3.3-70b-versatile
+    api_key_env: GROQ_API_KEY_2
+  - name: groq_reserve_3
+    model: groq/llama-3.3-70b-versatile
+    api_key_env: GROQ_API_KEY_3
   - name: openai
     model: gpt-4o-mini
     api_key_env: OPENAI_API_KEY
@@ -116,11 +126,12 @@ observability:
 
 evaluation:
   deepeval:
-    metrics: [faithfulness, answer_relevancy, hallucination]
+    metrics: [faithfulness, answer_relevancy, hallucination, persona_adherence]
     thresholds:
       faithfulness: 0.80
       answer_relevancy: 0.75
       hallucination: 0.20    # lower is better
+      persona_adherence: 0.70
   promptfoo:
     # Scoped deliberately: not prompt A/B, but proof that the fallback provider
     # behaves like the primary. An unvalidated fallback is untested code sitting

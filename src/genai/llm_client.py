@@ -7,6 +7,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import litellm
@@ -202,23 +203,38 @@ class LLMClient:
     def _trace(self, response: LLMResponse, persona: str, claim_id: str, prompt: str) -> None:
         if self._langfuse is None:
             return
+        metadata = {
+            "persona": persona,
+            "claim_id": claim_id,
+            "provider": response.provider,
+            "attempt": response.attempt,
+            "used_fallback": response.used_fallback,
+            "request_id": get_request_id(),
+            # The prompt embeds the customer narrative, so only a digest is sent.
+            "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest()[:16],
+        }
         try:
-            self._langfuse.trace(
+            trace = self._langfuse.trace(
                 name=self.config["observability"]["langfuse"]["trace_name"],
-                metadata={
-                    "persona": persona,
-                    "claim_id": claim_id,
-                    "model": response.model,
-                    "provider": response.provider,
-                    "attempt": response.attempt,
-                    "used_fallback": response.used_fallback,
-                    "latency_ms": response.latency_ms,
-                    "total_tokens": response.total_tokens,
-                    "cost_usd": response.cost_usd,
-                    "request_id": get_request_id(),
-                    # The prompt embeds the customer narrative, so only a digest is sent.
-                    "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest()[:16],
+                metadata=metadata,
+            )
+            end = datetime.now(UTC)
+            # A generation, not metadata on the trace: cost and token counts written as plain
+            # metadata are opaque strings to Langfuse, so its Cost and latency views read
+            # zero. Only an observation with model, usage and a time window populates them.
+            trace.generation(
+                name="explanation",
+                model=response.model,
+                start_time=end - timedelta(milliseconds=response.latency_ms),
+                end_time=end,
+                usage={
+                    "input": response.prompt_tokens,
+                    "output": response.completion_tokens,
+                    "unit": "TOKENS",
+                    # litellm already priced this call; Langfuse has no rate card for Groq.
+                    "total_cost": response.cost_usd,
                 },
+                metadata=metadata,
             )
         except Exception as exc:
             logger.warning("langfuse trace failed", extra={"error": str(exc)[:200]})

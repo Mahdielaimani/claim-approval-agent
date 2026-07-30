@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import statistics
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from src.api.app import create_app
 from src.api.middleware import REQUEST_ID_HEADER
+from src.monitoring.llm_monitor import LLMMonitor
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 ARTIFACTS = Path(__file__).resolve().parents[1] / "artifacts" / "models"
@@ -137,10 +139,13 @@ class StubPipeline:
 
 
 @pytest.fixture
-def client() -> TestClient:
+def client(tmp_path: Path) -> TestClient:
     """App with a stubbed pipeline. Lifespan is skipped, so no model is loaded."""
     app = create_app()
     app.state.pipeline = StubPipeline()
+    # Its own ledger per test: without this the suite appends to the real operations
+    # artefact, and the monthly spend figure would include fabricated calls.
+    app.state.llm_monitor = LLMMonitor(ledger=tmp_path / "llm_calls.jsonl")
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -303,9 +308,14 @@ class TestAgainstTheRealPipeline:
     """Integration checks. Skipped when no model is registered, as in CI."""
 
     @pytest.fixture(scope="class")
-    def live(self) -> Any:
+    def live(self, tmp_path_factory: pytest.TempPathFactory) -> Any:
         app = create_app()
         with TestClient(app) as client:
+            # Lifespan already built a monitor pointing at the real ledger; replace it so
+            # integration runs do not bill themselves to the operations record.
+            app.state.llm_monitor = LLMMonitor(
+                ledger=tmp_path_factory.mktemp("ledger") / "llm_calls.jsonl"
+            )
             yield client
 
     def test_routing_bands(self, live):
@@ -331,8 +341,12 @@ class TestAgainstTheRealPipeline:
         assert "declin" not in body["decision"].lower()
 
     def test_predict_stays_within_its_latency_budget(self, live):
-        body = live.post("/api/v1/predict", json=example("claim_borderline")).json()
-        assert body["latency_ms"] < 200
+        claim = example("claim_borderline")
+        # Median of warmed requests: the first call pays for lazily-initialised BLAS thread
+        # pools, which is a start-up cost the container absorbs once, not a serving cost.
+        live.post("/api/v1/predict", json=claim)
+        samples = [live.post("/api/v1/predict", json=claim).json()["latency_ms"] for _ in range(5)]
+        assert statistics.median(samples) < 200, f"latencies {samples}"
 
     def test_customer_response_leaks_nothing_end_to_end(self, live):
         raw = live.post(
