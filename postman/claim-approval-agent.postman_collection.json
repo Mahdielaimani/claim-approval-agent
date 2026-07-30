@@ -1,0 +1,1200 @@
+{
+  "info": {
+    "_postman_id": "1262570e-eab0-4ea5-8662-1bbf98398f65",
+    "name": "claim-approval-agent",
+    "description": "GenAI-powered claim decisioning.\n\n**The ML model decides. The LLM explains. No code path lets the LLM alter a decision.**\n\nStart the API:\n\n```\nuvicorn src.api.app:app --host 127.0.0.1 --port 8000\n```\n\nThen use **Run collection** — every request asserts its own behaviour, so the results are read as pass/fail rather than by inspecting JSON.\n\nSet `apiKey` and enable the `X-API-Key` header only if `API_KEY` is set in `.env`; it is disabled by default.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "38290133"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET Health Check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Request-ID returned for log correlation\", () =>",
+                  "    pm.expect(pm.response.headers.has(\"X-Request-ID\")).to.be.true);",
+                  "",
+                  "const b = pm.response.json();",
+                  "",
+                  "pm.test(\"reports the serving model\", () => {",
+                  "    pm.expect(b.status).to.eql(\"ok\");",
+                  "    pm.expect(b.model_algorithm).to.eql(\"random_forest\");",
+                  "    pm.expect(b.n_features).to.eql(37);",
+                  "});",
+                  "",
+                  "pm.test(\"threshold came from cross-validation, not 0.5\", () =>",
+                  "    pm.expect(b.decision_threshold).to.eql(0.344));",
+                  "",
+                  "pm.test(\"three separate LLM vendors in the fallback chain\", () =>",
+                  "    pm.expect(b.llm_chain.length).to.be.at.least(3));",
+                  "",
+                  "pm.test(\"provenance is exposed for the audit trail\", () => {",
+                  "    pm.expect(b.git_commit).to.not.be.empty;",
+                  "    pm.expect(b.trained_at).to.not.be.empty;",
+                  "    pm.expect(b.prompt_version).to.not.be.empty;",
+                  "});",
+                  "",
+                  "pm.test(\"under 50ms\", () => pm.expect(pm.response.responseTime).to.be.below(50));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "health"
+              ]
+            },
+            "description": "Reports the model version, prompt version and provider chain. Exempt from authentication so a load balancer can call it."
+          },
+          "response": []
+        }
+      ],
+      "description": "Liveness and what is loaded. Exempt from authentication."
+    },
+    {
+      "name": "Prediction",
+      "item": [
+        {
+          "name": "POST Valid Claim (borderline)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Request-ID returned for log correlation\", () =>",
+                  "    pm.expect(pm.response.headers.has(\"X-Request-ID\")).to.be.true);",
+                  "",
+                  "const b = pm.response.json();",
+                  "",
+                  "pm.test(\"score is a probability\", () => {",
+                  "    pm.expect(b.decline_risk_score).to.be.at.least(0);",
+                  "    pm.expect(b.decline_risk_score).to.be.at.most(1);",
+                  "});",
+                  "",
+                  "pm.test(\"HITL flag is always present\", () =>",
+                  "    pm.expect(b).to.have.property(\"requires_human_review\"));",
+                  "",
+                  "pm.test(\"the system never issues a decline itself\", () =>",
+                  "    pm.expect(b.decision.toLowerCase()).to.not.include(\"declin\"));",
+                  "",
+                  "pm.test(\"no LLM on this path: under the 200ms budget\", () =>",
+                  "    pm.expect(b.latency_ms).to.be.below(200));",
+                  "",
+                  "pm.test(\"routes to human review\", () => {",
+                  "    pm.expect(b.requires_human_review).to.be.true;",
+                  "    pm.expect(b.human_review_reason).to.eql(\"borderline_confidence\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/predict",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "predict"
+              ]
+            },
+            "description": "Score 0.3015 — inside the uncertain band, so it routes to a human.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"claim_id\": \"CLM-DEMO-BORDERLINE\",\n  \"excessFee\": 59.0,\n  \"rrp\": 1449.0,\n  \"balanceRRP\": 1391.04,\n  \"oldBalanceRRP\": 1391.04,\n  \"productName\": \"NL_ADLD_12M_MONTHLY_SMARTPHONE\",\n  \"productDesc\": \"WUAWEI Care+ Onopzettelijke Schade en Vloeistofschade\",\n  \"coverage\": \"ADLD\",\n  \"productCode\": \"NLADLD12M\",\n  \"policyStartDate\": \"2025-03-01 00:00:00\",\n  \"policyEndDate\": \"2026-03-01 00:00:00\",\n  \"purchaseDate\": \"2025-03-01 00:00:00\",\n  \"policyStatus\": \"Active\",\n  \"retailerName\": \"WUAWEI eStore\",\n  \"deviceType\": \"SMARTPHONES\",\n  \"make\": \"WUAWEI\",\n  \"model\": \"WUAWEI-P40\",\n  \"deviceCost\": 0,\n  \"relationship\": \"self\",\n  \"channel\": \"Online Portal\",\n  \"claimType\": \"Accidental Damage\",\n  \"country\": \"NL\",\n  \"turnOnOff\": 1.0,\n  \"touchScreen\": 0.0,\n  \"smashed\": null,\n  \"frontCamera\": 1.0,\n  \"backCamera\": 1.0,\n  \"frontOrBackCamera\": null,\n  \"audio\": 1.0,\n  \"mic\": 1.0,\n  \"buttons\": 0.0,\n  \"connection\": 0.0,\n  \"charging\": 0.0,\n  \"other\": null,\n  \"issueDesc\": \"Ik was onderweg naar mijn werk toen ik mijn telefoon uit mijn jaszak haalde om de tijd te bekijken. Op dat moment stootte iemand tegen mij aan op het perron en viel het toestel op de betonnen vloer. Het scherm is op meerdere plaatsen gebarsten en reageert niet meer op aanraking in de linkerbovenhoek. De behuizing heeft ook een diepe kras aan de zijkant opgelopen. Ik heb het toestel direct uitgezet.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST Straight-Through Candidate",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Request-ID returned for log correlation\", () =>",
+                  "    pm.expect(pm.response.headers.has(\"X-Request-ID\")).to.be.true);",
+                  "",
+                  "const b = pm.response.json();",
+                  "",
+                  "pm.test(\"score is a probability\", () => {",
+                  "    pm.expect(b.decline_risk_score).to.be.at.least(0);",
+                  "    pm.expect(b.decline_risk_score).to.be.at.most(1);",
+                  "});",
+                  "",
+                  "pm.test(\"HITL flag is always present\", () =>",
+                  "    pm.expect(b).to.have.property(\"requires_human_review\"));",
+                  "",
+                  "pm.test(\"the system never issues a decline itself\", () =>",
+                  "    pm.expect(b.decision.toLowerCase()).to.not.include(\"declin\"));",
+                  "",
+                  "pm.test(\"no LLM on this path: under the 200ms budget\", () =>",
+                  "    pm.expect(b.latency_ms).to.be.below(200));",
+                  "",
+                  "pm.test(\"below the straight-through boundary\", () =>",
+                  "    pm.expect(b.decline_risk_score).to.be.below(0.30));",
+                  "",
+                  "pm.test(\"no human review required\", () =>",
+                  "    pm.expect(b.requires_human_review).to.be.false);",
+                  "",
+                  "pm.test(\"wording is straight-through, never auto-approved\", () => {",
+                  "    pm.expect(b.decision).to.include(\"straight-through\");",
+                  "    pm.expect(b.decision.toLowerCase()).to.not.include(\"auto\");",
+                  "    pm.expect(b.decision.toLowerCase()).to.not.include(\"approved\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/predict",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "predict"
+              ]
+            },
+            "description": "Score below 0.30 with no forced-review trigger. Eligible for the fast queue — which is not the same as approved.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"claim_id\": \"CLM-DEMO-STRAIGHT_THROUGH\",\n  \"excessFee\": 59.0,\n  \"rrp\": 1449.0,\n  \"balanceRRP\": 1391.04,\n  \"oldBalanceRRP\": 1391.04,\n  \"productName\": \"NL_ADLD_12M_MONTHLY_SMARTPHONE\",\n  \"productDesc\": \"WUAWEI Care+ Onopzettelijke Schade en Vloeistofschade\",\n  \"coverage\": \"ADLD\",\n  \"productCode\": \"NLADLD12M\",\n  \"policyStartDate\": \"2025-03-01 00:00:00\",\n  \"policyEndDate\": \"2026-03-01 00:00:00\",\n  \"purchaseDate\": \"2025-03-01 00:00:00\",\n  \"policyStatus\": \"Active\",\n  \"retailerName\": \"WUAWEI eStore\",\n  \"deviceType\": \"SMARTPHONES\",\n  \"make\": \"WUAWEI\",\n  \"model\": \"WUAWEI-P40\",\n  \"deviceCost\": 0,\n  \"relationship\": \"self\",\n  \"channel\": \"Online Portal\",\n  \"claimType\": \"Accidental Damage\",\n  \"country\": \"NL\",\n  \"turnOnOff\": 1.0,\n  \"touchScreen\": 0.0,\n  \"smashed\": null,\n  \"frontCamera\": 1.0,\n  \"backCamera\": 1.0,\n  \"frontOrBackCamera\": null,\n  \"audio\": 1.0,\n  \"mic\": 1.0,\n  \"buttons\": 0.0,\n  \"connection\": 0.0,\n  \"charging\": 0.0,\n  \"other\": null,\n  \"issueDesc\": \"Het toestel viel uit mijn hand op de stoep en het scherm is gebarsten.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST High Risk Claim",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Request-ID returned for log correlation\", () =>",
+                  "    pm.expect(pm.response.headers.has(\"X-Request-ID\")).to.be.true);",
+                  "",
+                  "const b = pm.response.json();",
+                  "",
+                  "pm.test(\"score is a probability\", () => {",
+                  "    pm.expect(b.decline_risk_score).to.be.at.least(0);",
+                  "    pm.expect(b.decline_risk_score).to.be.at.most(1);",
+                  "});",
+                  "",
+                  "pm.test(\"HITL flag is always present\", () =>",
+                  "    pm.expect(b).to.have.property(\"requires_human_review\"));",
+                  "",
+                  "pm.test(\"the system never issues a decline itself\", () =>",
+                  "    pm.expect(b.decision.toLowerCase()).to.not.include(\"declin\"));",
+                  "",
+                  "pm.test(\"no LLM on this path: under the 200ms budget\", () =>",
+                  "    pm.expect(b.latency_ms).to.be.below(200));",
+                  "",
+                  "pm.test(\"above the mandatory-review boundary\", () =>",
+                  "    pm.expect(b.decline_risk_score).to.be.at.least(0.70));",
+                  "",
+                  "pm.test(\"mandatory expert review\", () => {",
+                  "    pm.expect(b.requires_human_review).to.be.true;",
+                  "    pm.expect(b.human_review_reason).to.eql(\"high_decline_risk\");",
+                  "    pm.expect(b.decision).to.include(\"expert review\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/predict",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "predict"
+              ]
+            },
+            "description": "Score above 0.70. Routed to mandatory expert review — the system still does not decline it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"claim_id\": \"CLM-DEMO-HIGH_RISK\",\n  \"excessFee\": 199.0,\n  \"rrp\": 2900.0,\n  \"balanceRRP\": 2784.0,\n  \"oldBalanceRRP\": 2784.0,\n  \"productName\": \"NL_ADLD_12M_MONTHLY_SMARTPHONE\",\n  \"productDesc\": \"WUAWEI Care+ Onopzettelijke Schade en Vloeistofschade\",\n  \"coverage\": \"ADLD\",\n  \"productCode\": \"NLADLD12M\",\n  \"policyStartDate\": \"2025-03-01 00:00:00\",\n  \"policyEndDate\": \"2026-03-01 00:00:00\",\n  \"purchaseDate\": \"2025-03-01 00:00:00\",\n  \"policyStatus\": \"Active\",\n  \"retailerName\": \"WUAWEI eStore\",\n  \"deviceType\": \"SMARTPHONES\",\n  \"make\": \"WUAWEI\",\n  \"model\": \"WUAWEI-P40\",\n  \"deviceCost\": 0,\n  \"relationship\": \"self\",\n  \"channel\": \"Online Portal\",\n  \"claimType\": \"Accidental Damage\",\n  \"country\": \"NL\",\n  \"turnOnOff\": 1.0,\n  \"touchScreen\": 1.0,\n  \"smashed\": null,\n  \"frontCamera\": 1.0,\n  \"backCamera\": 1.0,\n  \"frontOrBackCamera\": null,\n  \"audio\": 1.0,\n  \"mic\": 1.0,\n  \"buttons\": 0.0,\n  \"connection\": 0.0,\n  \"charging\": 0.0,\n  \"other\": null,\n  \"issueDesc\": \"Ik was onderweg naar mijn werk toen ik mijn telefoon uit mijn jaszak haalde om de tijd te bekijken. Op dat moment stootte iemand tegen mij aan op het perron en viel het toestel op de betonnen vloer. Het scherm is op meerdere plaatsen gebarsten en reageert niet meer op aanraking in de linkerbovenhoek. De behuizing heeft ook een diepe kras aan de zijkant opgelopen. Ik heb het toestel direct uitgezet.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST Theft Claim (forced review below threshold)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Request-ID returned for log correlation\", () =>",
+                  "    pm.expect(pm.response.headers.has(\"X-Request-ID\")).to.be.true);",
+                  "",
+                  "const b = pm.response.json();",
+                  "",
+                  "pm.test(\"score is a probability\", () => {",
+                  "    pm.expect(b.decline_risk_score).to.be.at.least(0);",
+                  "    pm.expect(b.decline_risk_score).to.be.at.most(1);",
+                  "});",
+                  "",
+                  "pm.test(\"HITL flag is always present\", () =>",
+                  "    pm.expect(b).to.have.property(\"requires_human_review\"));",
+                  "",
+                  "pm.test(\"the system never issues a decline itself\", () =>",
+                  "    pm.expect(b.decision.toLowerCase()).to.not.include(\"declin\"));",
+                  "",
+                  "pm.test(\"no LLM on this path: under the 200ms budget\", () =>",
+                  "    pm.expect(b.latency_ms).to.be.below(200));",
+                  "",
+                  "pm.test(\"score alone would have let it through\", () =>",
+                  "    pm.expect(b.decline_risk_score).to.be.below(0.30));",
+                  "",
+                  "pm.test(\"a rule overrides the score\", () => {",
+                  "    pm.expect(b.requires_human_review).to.be.true;",
+                  "    pm.expect(b.risk_flags).to.include(\"theft_claim\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/predict",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "predict"
+              ]
+            },
+            "description": "Score 0.2231 — below the straight-through boundary. It still routes to a human because a forced-review rule fires. Theft claims decline at 20.4% against a 15.7% base rate.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"claim_id\": \"CLM-DEMO-THEFT\",\n  \"excessFee\": 59.0,\n  \"rrp\": 1449.0,\n  \"balanceRRP\": 1391.04,\n  \"oldBalanceRRP\": 1391.04,\n  \"productName\": \"NL_ADLD+THEFT_12M_MONTHLY_SMARTPHONE\",\n  \"productDesc\": \"WUAWEI Care+ Onopzettelijke Schade en Vloeistofschade\",\n  \"coverage\": \"ADLD/THEFT\",\n  \"productCode\": \"NLADLD12M\",\n  \"policyStartDate\": \"2025-03-01 00:00:00\",\n  \"policyEndDate\": \"2026-03-01 00:00:00\",\n  \"purchaseDate\": \"2025-03-01 00:00:00\",\n  \"policyStatus\": \"Active\",\n  \"retailerName\": \"WUAWEI eStore\",\n  \"deviceType\": \"SMARTPHONES\",\n  \"make\": \"WUAWEI\",\n  \"model\": \"WUAWEI-P40\",\n  \"deviceCost\": 0,\n  \"relationship\": \"self\",\n  \"channel\": \"Online Portal\",\n  \"claimType\": \"Theft\",\n  \"country\": \"NL\",\n  \"turnOnOff\": 1.0,\n  \"touchScreen\": 0.0,\n  \"smashed\": null,\n  \"frontCamera\": 1.0,\n  \"backCamera\": 1.0,\n  \"frontOrBackCamera\": null,\n  \"audio\": 1.0,\n  \"mic\": 1.0,\n  \"buttons\": 0.0,\n  \"connection\": 0.0,\n  \"charging\": 0.0,\n  \"other\": null,\n  \"issueDesc\": \"Het toestel viel uit mijn hand op de stoep en het scherm is gebarsten.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST Grace Period Claim (forced review)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Request-ID returned for log correlation\", () =>",
+                  "    pm.expect(pm.response.headers.has(\"X-Request-ID\")).to.be.true);",
+                  "",
+                  "const b = pm.response.json();",
+                  "",
+                  "pm.test(\"score is a probability\", () => {",
+                  "    pm.expect(b.decline_risk_score).to.be.at.least(0);",
+                  "    pm.expect(b.decline_risk_score).to.be.at.most(1);",
+                  "});",
+                  "",
+                  "pm.test(\"HITL flag is always present\", () =>",
+                  "    pm.expect(b).to.have.property(\"requires_human_review\"));",
+                  "",
+                  "pm.test(\"the system never issues a decline itself\", () =>",
+                  "    pm.expect(b.decision.toLowerCase()).to.not.include(\"declin\"));",
+                  "",
+                  "pm.test(\"no LLM on this path: under the 200ms budget\", () =>",
+                  "    pm.expect(b.latency_ms).to.be.below(200));",
+                  "",
+                  "pm.test(\"forced review triggers fired\", () => {",
+                  "    pm.expect(b.requires_human_review).to.be.true;",
+                  "    pm.expect(b.risk_flags).to.include(\"grace_period_policy\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/predict",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "predict"
+              ]
+            },
+            "description": "Grace Period policies decline at 28.6% — on 28 claims in the whole dataset. A real pattern, far too thin to automate, so it is a rule.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"claim_id\": \"CLM-DEMO-GRACE_PERIOD\",\n  \"excessFee\": 59.0,\n  \"rrp\": 2900.0,\n  \"balanceRRP\": 2784.0,\n  \"oldBalanceRRP\": 2784.0,\n  \"productName\": \"NL_ADLD_12M_MONTHLY_SMARTPHONE\",\n  \"productDesc\": \"WUAWEI Care+ Onopzettelijke Schade en Vloeistofschade\",\n  \"coverage\": \"ADLD\",\n  \"productCode\": \"NLADLD12M\",\n  \"policyStartDate\": \"2025-03-01 00:00:00\",\n  \"policyEndDate\": \"2026-03-01 00:00:00\",\n  \"purchaseDate\": \"2025-03-01 00:00:00\",\n  \"policyStatus\": \"Grace Period\",\n  \"retailerName\": \"WUAWEI eStore\",\n  \"deviceType\": \"SMARTPHONES\",\n  \"make\": \"WUAWEI\",\n  \"model\": \"WUAWEI-P40\",\n  \"deviceCost\": 0,\n  \"relationship\": \"self\",\n  \"channel\": \"Online Portal\",\n  \"claimType\": \"Accidental Damage\",\n  \"country\": \"NL\",\n  \"turnOnOff\": 1.0,\n  \"touchScreen\": 0.0,\n  \"smashed\": null,\n  \"frontCamera\": 1.0,\n  \"backCamera\": 1.0,\n  \"frontOrBackCamera\": null,\n  \"audio\": 1.0,\n  \"mic\": 1.0,\n  \"buttons\": 0.0,\n  \"connection\": 0.0,\n  \"charging\": 0.0,\n  \"other\": null,\n  \"issueDesc\": \"Het toestel viel uit mijn hand op de stoep en het scherm is gebarsten.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST Missing Field -> 422",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 422\", () => pm.response.to.have.status(422));",
+                  "",
+                  "const b = pm.response.json();",
+                  "",
+                  "pm.test(\"names the field it rejected\", () =>",
+                  "    pm.expect(b.rejected_fields).to.include(\"rrp\"));",
+                  "",
+                  "pm.test(\"carries the request id for log correlation\", () =>",
+                  "    pm.expect(b.request_id).to.not.be.empty);",
+                  "",
+                  "pm.test(\"does NOT echo the customer narrative (PII)\", () => {",
+                  "    pm.expect(pm.response.text().toLowerCase()).to.not.include(\"toestel\");",
+                  "    pm.expect(b.detail[0]).to.not.have.property(\"input\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/predict",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "predict"
+              ]
+            },
+            "description": "rrp omitted. Pydantic rejects at the boundary; the model is never called.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"claim_id\": \"CLM-DEMO-INVALID\",\n  \"excessFee\": 59.0,\n  \"balanceRRP\": 1399.0,\n  \"oldBalanceRRP\": 1399.0,\n  \"productName\": \"NL_ADLD_12M_MONTHLY_SMARTPHONE\",\n  \"productDesc\": \"WUAWEI Care+ Onopzettelijke Schade en Vloeistofschade\",\n  \"coverage\": \"ADLD\",\n  \"productCode\": \"NLADLD12M\",\n  \"policyStartDate\": \"2025-03-01 00:00:00\",\n  \"policyEndDate\": \"2026-03-01 00:00:00\",\n  \"purchaseDate\": \"2025-03-01 00:00:00\",\n  \"policyStatus\": \"Active\",\n  \"retailerName\": \"WUAWEI eStore\",\n  \"deviceType\": \"SMARTPHONES\",\n  \"make\": \"WUAWEI\",\n  \"model\": \"WUAWEI-P40\",\n  \"deviceCost\": 0,\n  \"relationship\": \"self\",\n  \"channel\": \"Online Portal\",\n  \"claimType\": \"Accidental Damage\",\n  \"country\": \"NL\",\n  \"turnOnOff\": 1.0,\n  \"touchScreen\": 0.0,\n  \"smashed\": null,\n  \"frontCamera\": 1.0,\n  \"backCamera\": 1.0,\n  \"frontOrBackCamera\": null,\n  \"audio\": 1.0,\n  \"mic\": 1.0,\n  \"buttons\": 0.0,\n  \"connection\": 0.0,\n  \"charging\": 0.0,\n  \"other\": null,\n  \"issueDesc\": \"Het toestel viel uit mijn hand op de stoep en het scherm is gebarsten.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST Invalid ClaimType -> 422",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 422\", () => pm.response.to.have.status(422));",
+                  "",
+                  "const b = pm.response.json();",
+                  "",
+                  "pm.test(\"names the offending field\", () =>",
+                  "    pm.expect(b.rejected_fields).to.include(\"claimType\"));",
+                  "",
+                  "pm.test(\"lists the values the model was trained on\", () =>",
+                  "    pm.expect(b.detail[0].msg).to.include(\"Accidental Damage\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/predict",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "predict"
+              ]
+            },
+            "description": "claimType \"Fire\" was never in the training data. Scoring it would produce a number with no basis, so it is refused.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"claim_id\": \"CLM-DEMO-INVALID\",\n  \"excessFee\": 59.0,\n  \"rrp\": 1449.0,\n  \"balanceRRP\": 1399.0,\n  \"oldBalanceRRP\": 1399.0,\n  \"productName\": \"NL_ADLD_12M_MONTHLY_SMARTPHONE\",\n  \"productDesc\": \"WUAWEI Care+ Onopzettelijke Schade en Vloeistofschade\",\n  \"coverage\": \"ADLD\",\n  \"productCode\": \"NLADLD12M\",\n  \"policyStartDate\": \"2025-03-01 00:00:00\",\n  \"policyEndDate\": \"2026-03-01 00:00:00\",\n  \"purchaseDate\": \"2025-03-01 00:00:00\",\n  \"policyStatus\": \"Active\",\n  \"retailerName\": \"WUAWEI eStore\",\n  \"deviceType\": \"SMARTPHONES\",\n  \"make\": \"WUAWEI\",\n  \"model\": \"WUAWEI-P40\",\n  \"deviceCost\": 0,\n  \"relationship\": \"self\",\n  \"channel\": \"Online Portal\",\n  \"claimType\": \"Fire\",\n  \"country\": \"NL\",\n  \"turnOnOff\": 1.0,\n  \"touchScreen\": 0.0,\n  \"smashed\": null,\n  \"frontCamera\": 1.0,\n  \"backCamera\": 1.0,\n  \"frontOrBackCamera\": null,\n  \"audio\": 1.0,\n  \"mic\": 1.0,\n  \"buttons\": 0.0,\n  \"connection\": 0.0,\n  \"charging\": 0.0,\n  \"other\": null,\n  \"issueDesc\": \"Het toestel viel uit mijn hand op de stoep en het scherm is gebarsten.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "Scoring and routing. No LLM on this path, so no external dependency and a hard latency budget."
+    },
+    {
+      "name": "Explanation",
+      "item": [
+        {
+          "name": "POST Customer Persona",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Request-ID returned for log correlation\", () =>",
+                  "    pm.expect(pm.response.headers.has(\"X-Request-ID\")).to.be.true);",
+                  "",
+                  "const b = pm.response.json();",
+                  "",
+                  "pm.test(\"no internals in the response envelope\", () => {",
+                  "    [\"decline_risk_score\", \"decision_threshold\", \"model_version\",",
+                  "     \"model_algorithm\", \"risk_flags\", \"generation\", \"validation\"]",
+                  "        .forEach(f => pm.expect(b).to.not.have.property(f));",
+                  "});",
+                  "",
+                  "pm.test(\"no internal vocabulary anywhere in the payload\", () => {",
+                  "    const raw = pm.response.text().toLowerCase();",
+                  "    [\"shap\", \"random_forest\", \"llama\", \"threshold\", \"probability\"]",
+                  "        .forEach(t => pm.expect(raw).to.not.include(t));",
+                  "});",
+                  "",
+                  "pm.test(\"customer schema\", () => {",
+                  "    pm.expect(b.explanation).to.have.all.keys(",
+                  "        \"summary\", \"key_factors\", \"next_steps\");",
+                  "});",
+                  "",
+                  "pm.test(\"factors are plain wording, not attribution values\", () => {",
+                  "    pm.expect(b.factors[0]).to.have.property(\"factor\");",
+                  "    pm.expect(b.factors[0]).to.not.have.property(\"shap_value\");",
+                  "});",
+                  "",
+                  "pm.test(\"within the 5s explanation budget\", () =>",
+                  "    pm.expect(b.total_latency_ms).to.be.below(5000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/explain",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "explain"
+              ]
+            },
+            "description": "Plain language, next steps, and no model internals. The score is absent from the response because it is absent from the context the customer template receives.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"claim_id\": \"CLM-DEMO-BORDERLINE\",\n  \"excessFee\": 59.0,\n  \"rrp\": 1449.0,\n  \"balanceRRP\": 1391.04,\n  \"oldBalanceRRP\": 1391.04,\n  \"productName\": \"NL_ADLD_12M_MONTHLY_SMARTPHONE\",\n  \"productDesc\": \"WUAWEI Care+ Onopzettelijke Schade en Vloeistofschade\",\n  \"coverage\": \"ADLD\",\n  \"productCode\": \"NLADLD12M\",\n  \"policyStartDate\": \"2025-03-01 00:00:00\",\n  \"policyEndDate\": \"2026-03-01 00:00:00\",\n  \"purchaseDate\": \"2025-03-01 00:00:00\",\n  \"policyStatus\": \"Active\",\n  \"retailerName\": \"WUAWEI eStore\",\n  \"deviceType\": \"SMARTPHONES\",\n  \"make\": \"WUAWEI\",\n  \"model\": \"WUAWEI-P40\",\n  \"deviceCost\": 0,\n  \"relationship\": \"self\",\n  \"channel\": \"Online Portal\",\n  \"claimType\": \"Accidental Damage\",\n  \"country\": \"NL\",\n  \"turnOnOff\": 1.0,\n  \"touchScreen\": 0.0,\n  \"smashed\": null,\n  \"frontCamera\": 1.0,\n  \"backCamera\": 1.0,\n  \"frontOrBackCamera\": null,\n  \"audio\": 1.0,\n  \"mic\": 1.0,\n  \"buttons\": 0.0,\n  \"connection\": 0.0,\n  \"charging\": 0.0,\n  \"other\": null,\n  \"issueDesc\": \"Ik was onderweg naar mijn werk toen ik mijn telefoon uit mijn jaszak haalde om de tijd te bekijken. Op dat moment stootte iemand tegen mij aan op het perron en viel het toestel op de betonnen vloer. Het scherm is op meerdere plaatsen gebarsten en reageert niet meer op aanraking in de linkerbovenhoek. De behuizing heeft ook een diepe kras aan de zijkant opgelopen. Ik heb het toestel direct uitgezet.\",\n  \"persona\": \"customer\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST Adjuster Persona",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Request-ID returned for log correlation\", () =>",
+                  "    pm.expect(pm.response.headers.has(\"X-Request-ID\")).to.be.true);",
+                  "",
+                  "const b = pm.response.json();",
+                  "",
+                  "pm.test(\"receives the score and the threshold\", () => {",
+                  "    pm.expect(b.decline_risk_score).to.be.a(\"number\");",
+                  "    pm.expect(b.decision_threshold).to.eql(0.344);",
+                  "});",
+                  "",
+                  "pm.test(\"receives signed attribution\", () => {",
+                  "    pm.expect(b.factors[0]).to.have.property(\"shap_value\");",
+                  "    pm.expect(b.factors[0]).to.have.property(\"direction\");",
+                  "});",
+                  "",
+                  "pm.test(\"adjuster schema\", () => {",
+                  "    pm.expect(b.explanation).to.have.all.keys(",
+                  "        \"summary\", \"key_factors\", \"risk_assessment\", \"review_notes\");",
+                  "});",
+                  "",
+                  "pm.test(\"output passed runtime validation\", () => {",
+                  "    pm.expect(b.validation.passed).to.be.true;",
+                  "    pm.expect(b.validation.n_errors).to.eql(0);",
+                  "});",
+                  "",
+                  "pm.test(\"more factors than the customer sees\", () =>",
+                  "    pm.expect(b.factors.length).to.be.at.least(10));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/explain",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "explain"
+              ]
+            },
+            "description": "Same claim, same score, same SHAP values. A decision-support document: attribution, risk flags and the customer narrative.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"claim_id\": \"CLM-DEMO-BORDERLINE\",\n  \"excessFee\": 59.0,\n  \"rrp\": 1449.0,\n  \"balanceRRP\": 1391.04,\n  \"oldBalanceRRP\": 1391.04,\n  \"productName\": \"NL_ADLD_12M_MONTHLY_SMARTPHONE\",\n  \"productDesc\": \"WUAWEI Care+ Onopzettelijke Schade en Vloeistofschade\",\n  \"coverage\": \"ADLD\",\n  \"productCode\": \"NLADLD12M\",\n  \"policyStartDate\": \"2025-03-01 00:00:00\",\n  \"policyEndDate\": \"2026-03-01 00:00:00\",\n  \"purchaseDate\": \"2025-03-01 00:00:00\",\n  \"policyStatus\": \"Active\",\n  \"retailerName\": \"WUAWEI eStore\",\n  \"deviceType\": \"SMARTPHONES\",\n  \"make\": \"WUAWEI\",\n  \"model\": \"WUAWEI-P40\",\n  \"deviceCost\": 0,\n  \"relationship\": \"self\",\n  \"channel\": \"Online Portal\",\n  \"claimType\": \"Accidental Damage\",\n  \"country\": \"NL\",\n  \"turnOnOff\": 1.0,\n  \"touchScreen\": 0.0,\n  \"smashed\": null,\n  \"frontCamera\": 1.0,\n  \"backCamera\": 1.0,\n  \"frontOrBackCamera\": null,\n  \"audio\": 1.0,\n  \"mic\": 1.0,\n  \"buttons\": 0.0,\n  \"connection\": 0.0,\n  \"charging\": 0.0,\n  \"other\": null,\n  \"issueDesc\": \"Ik was onderweg naar mijn werk toen ik mijn telefoon uit mijn jaszak haalde om de tijd te bekijken. Op dat moment stootte iemand tegen mij aan op het perron en viel het toestel op de betonnen vloer. Het scherm is op meerdere plaatsen gebarsten en reageert niet meer op aanraking in de linkerbovenhoek. De behuizing heeft ook een diepe kras aan de zijkant opgelopen. Ik heb het toestel direct uitgezet.\",\n  \"persona\": \"adjuster\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST Auditor Persona",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Request-ID returned for log correlation\", () =>",
+                  "    pm.expect(pm.response.headers.has(\"X-Request-ID\")).to.be.true);",
+                  "",
+                  "const b = pm.response.json();",
+                  "",
+                  "pm.test(\"auditor schema\", () => {",
+                  "    pm.expect(b.explanation).to.have.all.keys(",
+                  "        \"summary\", \"key_factors\", \"provenance_record\",",
+                  "        \"human_oversight\", \"limitations\");",
+                  "});",
+                  "",
+                  "pm.test(\"provenance is reconstructable months later\", () => {",
+                  "    const p = b.explanation.provenance_record;",
+                  "    pm.expect(p).to.include(b.model_version);",
+                  "    pm.expect(p).to.include(\"random_forest\");",
+                  "});",
+                  "",
+                  "pm.test(\"human oversight status is recorded\", () =>",
+                  "    pm.expect(b.explanation.human_oversight).to.not.be.empty);",
+                  "",
+                  "pm.test(\"limitations are disclosed, not hidden\", () =>",
+                  "    pm.expect(b.explanation.limitations).to.not.be.empty);",
+                  "",
+                  "pm.test(\"most factors of the three personas\", () =>",
+                  "    pm.expect(b.factors.length).to.be.at.least(15));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/explain",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "explain"
+              ]
+            },
+            "description": "Everything the adjuster sees, plus provenance and a limitations section. GDPR Article 22 traceability built into the product.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"claim_id\": \"CLM-DEMO-BORDERLINE\",\n  \"excessFee\": 59.0,\n  \"rrp\": 1449.0,\n  \"balanceRRP\": 1391.04,\n  \"oldBalanceRRP\": 1391.04,\n  \"productName\": \"NL_ADLD_12M_MONTHLY_SMARTPHONE\",\n  \"productDesc\": \"WUAWEI Care+ Onopzettelijke Schade en Vloeistofschade\",\n  \"coverage\": \"ADLD\",\n  \"productCode\": \"NLADLD12M\",\n  \"policyStartDate\": \"2025-03-01 00:00:00\",\n  \"policyEndDate\": \"2026-03-01 00:00:00\",\n  \"purchaseDate\": \"2025-03-01 00:00:00\",\n  \"policyStatus\": \"Active\",\n  \"retailerName\": \"WUAWEI eStore\",\n  \"deviceType\": \"SMARTPHONES\",\n  \"make\": \"WUAWEI\",\n  \"model\": \"WUAWEI-P40\",\n  \"deviceCost\": 0,\n  \"relationship\": \"self\",\n  \"channel\": \"Online Portal\",\n  \"claimType\": \"Accidental Damage\",\n  \"country\": \"NL\",\n  \"turnOnOff\": 1.0,\n  \"touchScreen\": 0.0,\n  \"smashed\": null,\n  \"frontCamera\": 1.0,\n  \"backCamera\": 1.0,\n  \"frontOrBackCamera\": null,\n  \"audio\": 1.0,\n  \"mic\": 1.0,\n  \"buttons\": 0.0,\n  \"connection\": 0.0,\n  \"charging\": 0.0,\n  \"other\": null,\n  \"issueDesc\": \"Ik was onderweg naar mijn werk toen ik mijn telefoon uit mijn jaszak haalde om de tijd te bekijken. Op dat moment stootte iemand tegen mij aan op het perron en viel het toestel op de betonnen vloer. Het scherm is op meerdere plaatsen gebarsten en reageert niet meer op aanraking in de linkerbovenhoek. De behuizing heeft ook een diepe kras aan de zijkant opgelopen. Ik heb het toestel direct uitgezet.\",\n  \"persona\": \"auditor\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST High Risk, Auditor View",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Request-ID returned for log correlation\", () =>",
+                  "    pm.expect(pm.response.headers.has(\"X-Request-ID\")).to.be.true);",
+                  "",
+                  "const b = pm.response.json();",
+                  "",
+                  "pm.test(\"high band routes to mandatory expert review\", () => {",
+                  "    pm.expect(b.decline_risk_score).to.be.at.least(0.70);",
+                  "    pm.expect(b.requires_human_review).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test(\"still no decline issued by the system\", () =>",
+                  "    pm.expect(b.decision.toLowerCase()).to.not.include(\"declin\"));",
+                  "",
+                  "pm.test(\"the record does not claim a human has reviewed it\", () =>",
+                  "    pm.expect(b.validation.passed).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/explain",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "explain"
+              ]
+            },
+            "description": "The compliance record for a high-risk claim. Confirms that even at the top band no adverse decision is issued by the system.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"claim_id\": \"CLM-DEMO-HIGH_RISK\",\n  \"excessFee\": 199.0,\n  \"rrp\": 2900.0,\n  \"balanceRRP\": 2784.0,\n  \"oldBalanceRRP\": 2784.0,\n  \"productName\": \"NL_ADLD_12M_MONTHLY_SMARTPHONE\",\n  \"productDesc\": \"WUAWEI Care+ Onopzettelijke Schade en Vloeistofschade\",\n  \"coverage\": \"ADLD\",\n  \"productCode\": \"NLADLD12M\",\n  \"policyStartDate\": \"2025-03-01 00:00:00\",\n  \"policyEndDate\": \"2026-03-01 00:00:00\",\n  \"purchaseDate\": \"2025-03-01 00:00:00\",\n  \"policyStatus\": \"Active\",\n  \"retailerName\": \"WUAWEI eStore\",\n  \"deviceType\": \"SMARTPHONES\",\n  \"make\": \"WUAWEI\",\n  \"model\": \"WUAWEI-P40\",\n  \"deviceCost\": 0,\n  \"relationship\": \"self\",\n  \"channel\": \"Online Portal\",\n  \"claimType\": \"Accidental Damage\",\n  \"country\": \"NL\",\n  \"turnOnOff\": 1.0,\n  \"touchScreen\": 1.0,\n  \"smashed\": null,\n  \"frontCamera\": 1.0,\n  \"backCamera\": 1.0,\n  \"frontOrBackCamera\": null,\n  \"audio\": 1.0,\n  \"mic\": 1.0,\n  \"buttons\": 0.0,\n  \"connection\": 0.0,\n  \"charging\": 0.0,\n  \"other\": null,\n  \"issueDesc\": \"Ik was onderweg naar mijn werk toen ik mijn telefoon uit mijn jaszak haalde om de tijd te bekijken. Op dat moment stootte iemand tegen mij aan op het perron en viel het toestel op de betonnen vloer. Het scherm is op meerdere plaatsen gebarsten en reageert niet meer op aanraking in de linkerbovenhoek. De behuizing heeft ook een diepe kras aan de zijkant opgelopen. Ik heb het toestel direct uitgezet.\",\n  \"persona\": \"auditor\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST Invalid Persona -> 422",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 422\", () => pm.response.to.have.status(422));",
+                  "",
+                  "pm.test(\"names persona as the rejected field\", () =>",
+                  "    pm.expect(pm.response.json().rejected_fields).to.include(\"persona\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/explain",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "explain"
+              ]
+            },
+            "description": "Three personas exist. A fourth would have no template and no filtering rules, so it is refused rather than guessed.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"claim_id\": \"CLM-DEMO-BORDERLINE\",\n  \"excessFee\": 59.0,\n  \"rrp\": 1449.0,\n  \"balanceRRP\": 1391.04,\n  \"oldBalanceRRP\": 1391.04,\n  \"productName\": \"NL_ADLD_12M_MONTHLY_SMARTPHONE\",\n  \"productDesc\": \"WUAWEI Care+ Onopzettelijke Schade en Vloeistofschade\",\n  \"coverage\": \"ADLD\",\n  \"productCode\": \"NLADLD12M\",\n  \"policyStartDate\": \"2025-03-01 00:00:00\",\n  \"policyEndDate\": \"2026-03-01 00:00:00\",\n  \"purchaseDate\": \"2025-03-01 00:00:00\",\n  \"policyStatus\": \"Active\",\n  \"retailerName\": \"WUAWEI eStore\",\n  \"deviceType\": \"SMARTPHONES\",\n  \"make\": \"WUAWEI\",\n  \"model\": \"WUAWEI-P40\",\n  \"deviceCost\": 0,\n  \"relationship\": \"self\",\n  \"channel\": \"Online Portal\",\n  \"claimType\": \"Accidental Damage\",\n  \"country\": \"NL\",\n  \"turnOnOff\": 1.0,\n  \"touchScreen\": 0.0,\n  \"smashed\": null,\n  \"frontCamera\": 1.0,\n  \"backCamera\": 1.0,\n  \"frontOrBackCamera\": null,\n  \"audio\": 1.0,\n  \"mic\": 1.0,\n  \"buttons\": 0.0,\n  \"connection\": 0.0,\n  \"charging\": 0.0,\n  \"other\": null,\n  \"issueDesc\": \"Ik was onderweg naar mijn werk toen ik mijn telefoon uit mijn jaszak haalde om de tijd te bekijken. Op dat moment stootte iemand tegen mij aan op het perron en viel het toestel op de betonnen vloer. Het scherm is op meerdere plaatsen gebarsten en reageert niet meer op aanraking in de linkerbovenhoek. De behuizing heeft ook een diepe kras aan de zijkant opgelopen. Ik heb het toestel direct uitgezet.\",\n  \"persona\": \"manager\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET Personas",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Request-ID returned for log correlation\", () =>",
+                  "    pm.expect(pm.response.headers.has(\"X-Request-ID\")).to.be.true);",
+                  "",
+                  "const p = pm.response.json().personas;",
+                  "",
+                  "pm.test(\"exactly three personas\", () => pm.expect(p.length).to.eql(3));",
+                  "",
+                  "pm.test(\"only the customer is denied the score\", () => {",
+                  "    const byName = Object.fromEntries(p.map(x => [x.name, x]));",
+                  "    pm.expect(byName.customer.sees_score).to.be.false;",
+                  "    pm.expect(byName.adjuster.sees_score).to.be.true;",
+                  "    pm.expect(byName.auditor.sees_score).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test(\"only the auditor receives provenance\", () => {",
+                  "    const byName = Object.fromEntries(p.map(x => [x.name, x]));",
+                  "    pm.expect(byName.customer.sees_provenance).to.be.false;",
+                  "    pm.expect(byName.adjuster.sees_provenance).to.be.false;",
+                  "    pm.expect(byName.auditor.sees_provenance).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test(\"detail increases with audience seniority\", () => {",
+                  "    const byName = Object.fromEntries(p.map(x => [x.name, x]));",
+                  "    pm.expect(byName.customer.top_n_factors)",
+                  "        .to.be.below(byName.adjuster.top_n_factors);",
+                  "    pm.expect(byName.adjuster.top_n_factors)",
+                  "        .to.be.below(byName.auditor.top_n_factors);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/personas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "personas"
+              ]
+            },
+            "description": "The filtering matrix, queryable. A client knows what to expect before calling."
+          },
+          "response": []
+        }
+      ],
+      "description": "The same decision rendered for three audiences."
+    },
+    {
+      "name": "Monitoring",
+      "item": [
+        {
+          "name": "GET OpenAPI Schema",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "",
+                  "const s = pm.response.json().components.schemas;",
+                  "",
+                  "pm.test(\"both explanation shapes are documented\", () => {",
+                  "    pm.expect(s).to.have.property(\"CustomerExplanationResponse\");",
+                  "    pm.expect(s).to.have.property(\"TechnicalExplanationResponse\");",
+                  "});",
+                  "",
+                  "pm.test(\"the customer schema has no score field\", () =>",
+                  "    pm.expect(s.CustomerExplanationResponse.properties)",
+                  "        .to.not.have.property(\"decline_risk_score\"));",
+                  "",
+                  "pm.test(\"enums are published so callers know the valid values\", () => {",
+                  "    [\"ClaimType\", \"Country\", \"Coverage\", \"PolicyStatus\", \"Channel\"]",
+                  "        .forEach(e => pm.expect(s).to.have.property(e));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/openapi.json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "openapi.json"
+              ]
+            },
+            "description": "The persona filter is visible in the schema itself: two response models, and the customer one has no score field."
+          },
+          "response": []
+        },
+        {
+          "name": "GET Rate Limit Headers",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test(\"request id present on every response\", () =>",
+                  "    pm.expect(pm.response.headers.has(\"X-Request-ID\")).to.be.true);",
+                  "",
+                  "console.log(\"Rate limit headers appear on /predict and /explain, not /health.\");",
+                  "console.log(\"Send POST /predict 101 times within a minute to observe a 429.\");"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "health"
+              ]
+            },
+            "description": "Run POST /predict a few times first, then read the remaining allowance. /predict allows 100/min and /explain 20/min, because a paid third-party call cannot share a budget with an in-process one."
+          },
+          "response": []
+        },
+        {
+          "name": "POST Degradation Check (adjuster)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Request-ID returned for log correlation\", () =>",
+                  "    pm.expect(pm.response.headers.has(\"X-Request-ID\")).to.be.true);",
+                  "",
+                  "const g = pm.response.json().generation;",
+                  "",
+                  "pm.test(\"the prediction is returned whatever the LLM did\", () =>",
+                  "    pm.expect(pm.response.json().decline_risk_score).to.be.a(\"number\"));",
+                  "",
+                  "pm.test(\"generation metadata is reported for observability\", () => {",
+                  "    pm.expect(g).to.have.property(\"provider\");",
+                  "    pm.expect(g).to.have.property(\"used_fallback_provider\");",
+                  "    pm.expect(g).to.have.property(\"used_template_fallback\");",
+                  "    pm.expect(g).to.have.property(\"retried\");",
+                  "});",
+                  "",
+                  "console.log(\"provider:\", g.provider, \"| fallback:\", g.used_fallback_provider,",
+                  "            \"| template:\", g.used_template_fallback, \"| retried:\", g.retried);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/explain",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "explain"
+              ]
+            },
+            "description": "Reports whether the primary LLM served this call, whether a retry was needed, and whether the deterministic template was used. With every provider down this still returns 200 with the prediction.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"claim_id\": \"CLM-DEMO-BORDERLINE\",\n  \"excessFee\": 59.0,\n  \"rrp\": 1449.0,\n  \"balanceRRP\": 1391.04,\n  \"oldBalanceRRP\": 1391.04,\n  \"productName\": \"NL_ADLD_12M_MONTHLY_SMARTPHONE\",\n  \"productDesc\": \"WUAWEI Care+ Onopzettelijke Schade en Vloeistofschade\",\n  \"coverage\": \"ADLD\",\n  \"productCode\": \"NLADLD12M\",\n  \"policyStartDate\": \"2025-03-01 00:00:00\",\n  \"policyEndDate\": \"2026-03-01 00:00:00\",\n  \"purchaseDate\": \"2025-03-01 00:00:00\",\n  \"policyStatus\": \"Active\",\n  \"retailerName\": \"WUAWEI eStore\",\n  \"deviceType\": \"SMARTPHONES\",\n  \"make\": \"WUAWEI\",\n  \"model\": \"WUAWEI-P40\",\n  \"deviceCost\": 0,\n  \"relationship\": \"self\",\n  \"channel\": \"Online Portal\",\n  \"claimType\": \"Accidental Damage\",\n  \"country\": \"NL\",\n  \"turnOnOff\": 1.0,\n  \"touchScreen\": 0.0,\n  \"smashed\": null,\n  \"frontCamera\": 1.0,\n  \"backCamera\": 1.0,\n  \"frontOrBackCamera\": null,\n  \"audio\": 1.0,\n  \"mic\": 1.0,\n  \"buttons\": 0.0,\n  \"connection\": 0.0,\n  \"charging\": 0.0,\n  \"other\": null,\n  \"issueDesc\": \"Ik was onderweg naar mijn werk toen ik mijn telefoon uit mijn jaszak haalde om de tijd te bekijken. Op dat moment stootte iemand tegen mij aan op het perron en viel het toestel op de betonnen vloer. Het scherm is op meerdere plaatsen gebarsten en reageert niet meer op aanraking in de linkerbovenhoek. De behuizing heeft ook een diepe kras aan de zijkant opgelopen. Ik heb het toestel direct uitgezet.\",\n  \"persona\": \"adjuster\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "Contract, quotas and degradation reporting."
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000",
+      "type": "string"
+    },
+    {
+      "key": "apiKey",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}
