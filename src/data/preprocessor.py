@@ -187,7 +187,9 @@ class Preprocessor:
         sentinel = mv["diagnostic_sentinel"]
         for col in mv["diagnostic_columns"]:
             if col in df.columns:
-                df[col] = df[col].fillna(sentinel).astype(int)
+                # to_numeric first: a claim arriving as JSON carries nulls in an object
+                # column, and fillna on object dtype is deprecated and would downcast.
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(sentinel).astype(int)
         return df
 
     def _fill_categoricals(self, df: pd.DataFrame) -> pd.DataFrame:

@@ -2,16 +2,28 @@
 # All provider access goes through LiteLLM so a provider change is a config
 # change, never a code change.
 
+# An ordered chain, not a primary/fallback pair. Each entry is tried in turn; one with
+# no key configured is skipped rather than counted as a failure.
+#
+# Three separate vendors on purpose. A fallback that shares infrastructure with the
+# primary is not a fallback — a single outage would take both down. Groq, OpenAI and
+# Google have nothing in common but the LiteLLM interface in front of them.
+#
+# Changing the order, or adding a fourth vendor, is an edit to this list. No code
+# changes, which is the entire reason LiteLLM is in the stack.
 providers:
-  primary:
+  - name: groq
+    model: groq/llama-3.3-70b-versatile
+    api_key_env: GROQ_API_KEY
+    # First because it is free and fast. Llama 3.3 70B holds the persona constraints
+    # and the JSON schema reliably at temperature 0.1.
+  - name: openai
     model: gpt-4o-mini
-    # Chosen for reliable structured-JSON adherence at low cost. The pipeline
-    # depends on schema compliance far more than on prose quality.
     api_key_env: OPENAI_API_KEY
-  fallback:
+    # Strongest structured-JSON adherence of the three. The pipeline depends on schema
+    # compliance far more than on prose quality.
+  - name: gemini
     model: gemini/gemini-2.0-flash
-    # A different vendor, not just a different model — a shared outage would
-    # defeat the purpose of having a fallback at all.
     api_key_env: GEMINI_API_KEY
 
 generation:
@@ -68,17 +80,32 @@ personas:
     tone: formal, compliance-oriented
 
 validation:
-  # Runs on every LLM response before it leaves the service.
+  # Runs on every LLM response before it leaves the service. The prompt asks; this
+  # enforces. Measured on 2026-07-29: with a system prompt explicitly forbidding it,
+  # Llama 3.3 still wrote "the claim was declined" about a straight-through candidate.
+  # An instruction is not a guarantee.
   require_json: true
   strip_markdown_fences: true
-  required_fields: [summary, key_factors]
-  # Terms that must never reach a customer response.
+  # Per persona, because each template asks for a different schema.
+  required_fields:
+    customer: [summary, key_factors, next_steps]
+    adjuster: [summary, key_factors, risk_assessment, review_notes]
+    auditor: [summary, key_factors, provenance_record, human_oversight, limitations]
+  # Terms that must never reach a customer response. Model names are listed because a
+  # leaked algorithm name is a disclosure, and the winner changed once already.
   customer_blocklist:
     [shap, shapley, probability, confidence score, model predicts, threshold,
-     xgboost, feature importance, classifier, training data]
-  check_sentiment_consistency: true   # a declined claim must not read as approved
-  check_numeric_grounding: true       # every number must appear in the input or
-                                      # the SHAP output
+     random forest, xgboost, catboost, lightgbm, llama, gpt, gemini, groq,
+     feature importance, classifier, training data, base rate, attribution,
+     algorithm, machine learning, decline risk score]
+  # Wording that asserts an outcome the decision record does not support.
+  forbidden_everywhere: [auto-approved, automatically approved, auto-declined]
+  check_sentiment_consistency: true
+  check_numeric_grounding: true
+  # Numbers below this magnitude are treated as prose ("two factors", "step 3") rather
+  # than as statistics, so grounding does not fire on ordinary counting.
+  grounding_min_magnitude: 10.0
+  grounding_tolerance: 0.01
   max_retries_on_failure: 1
 
 observability:

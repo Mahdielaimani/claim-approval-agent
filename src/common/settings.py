@@ -24,10 +24,11 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    groq_api_key: str = ""
     openai_api_key: str = ""
     gemini_api_key: str = ""
-    llm_primary_model: str = "gpt-4o-mini"
-    llm_fallback_model: str = "gemini/gemini-2.0-flash"
+    llm_primary_model: str = "groq/llama-3.3-70b-versatile"
+    llm_fallback_model: str = "gpt-4o-mini"
     llm_max_tokens: int = 1024
     llm_temperature: float = 0.1
     llm_timeout_seconds: int = 20
@@ -54,7 +55,11 @@ class Settings(BaseSettings):
     def llm_mock_mode(self) -> bool:
         """True when no provider key is configured."""
         # Offline mode keeps CI deterministic and free of provider cost.
-        return not (self.openai_api_key or self.gemini_api_key)
+        return not any((self.groq_api_key, self.openai_api_key, self.gemini_api_key))
+
+    def api_key_for(self, env_name: str) -> str:
+        """Look up a provider key by the env var name declared in configs/llm.yaml."""
+        return str(getattr(self, env_name.lower(), "") or "")
 
     @property
     def langfuse_enabled(self) -> bool:

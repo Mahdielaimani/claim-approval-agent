@@ -115,6 +115,24 @@ def register(
     return card
 
 
+def save_transformers(preprocessor: Any, feature_engineer: Any) -> Path:
+    """Persist the fitted preprocessing state beside the model."""
+    # Without these the model is unusable: a serving row needs the medians and maps from fit.
+    path = _local_dir() / "transformers.joblib"
+    joblib.dump({"preprocessor": preprocessor, "feature_engineer": feature_engineer}, path)
+    logger.info("transformers saved", extra={"path": str(path)})
+    return path
+
+
+def load_transformers() -> tuple[Any, Any]:
+    """Load the fitted preprocessor and feature engineer."""
+    path = _local_dir() / "transformers.joblib"
+    if not path.exists():
+        raise FileNotFoundError(f"No transformers at {path}. Train and register a model first.")
+    bundle = joblib.load(path)
+    return bundle["preprocessor"], bundle["feature_engineer"]
+
+
 def promote(version: str, alias: str = PRODUCTION, *, model_name: str | None = None) -> None:
     """Point an alias at a version, moving it off whatever held it before."""
     cfg = get_training_config()

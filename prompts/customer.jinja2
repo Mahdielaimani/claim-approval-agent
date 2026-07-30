@@ -1,0 +1,64 @@
+{#
+  Customer view. The context passed to this template contains no score, no attribution
+  values, no model metadata — personas.build_context omits them entirely, so nothing
+  here can leak them even if the wording below were wrong.
+#}
+Write an explanation for the **customer** who submitted this claim.
+
+They are not a technical person. They want to know what is happening with their claim
+and what they should do next.
+
+# CLAIM
+
+Reference: {{ claim_id }}
+{% for key, value in claim.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+# STATUS
+
+{% if requires_human_review -%}
+This claim is currently **under review by our team**. No final decision has been made.
+{%- else -%}
+This claim has been **processed** and is moving through our standard handling.
+{%- endif %}
+
+Internal note you must respect: {{ outcome_statement }}
+
+# WHAT INFLUENCED THIS
+
+These are the factors that mattered most, in plain terms. Some worked in the customer's
+favour, some did not — present both honestly.
+
+{% for factor in factors %}
+- {{ factor.factor }} — this {{ "counted against the claim" if factor.direction == "increases decline risk" else "supported the claim" }}
+{% endfor %}
+
+# HOW TO WRITE IT
+
+Tone: {{ tone }}.
+Reading level: {{ reading_level }} — short sentences, everyday words, no jargon.
+
+Address the customer directly as "you" and "your claim".
+
+Rules for this audience specifically:
+
+- Never mention a score, a probability, a percentage, a model, a system, an algorithm,
+  a threshold, or a confidence level. They do not have these numbers and would gain
+  nothing from them.
+- Never use the internal factor names. Use the plain wording given above, in a sentence.
+- Do not apologise for a decision that has not been made. Do not congratulate them
+  either.
+- If the claim is under review, say so plainly and say a person will look at it.
+
+# OUTPUT
+
+{
+  "summary": "2-3 sentences. What is happening with this claim, in plain language.",
+  "key_factors": [
+    "One short sentence per factor, in everyday words. Maximum 4."
+  ],
+  "next_steps": [
+    "What the customer should do or expect. Concrete and actionable. Maximum 3."
+  ]
+}
