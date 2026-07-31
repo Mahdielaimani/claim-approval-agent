@@ -1,40 +1,26 @@
-# Serving dependencies. Python 3.12. Pinned for reproducibility.
-#
-# What the API needs to score a claim and explain it — nothing else. Training, tuning and
-# plotting live in requirements-train.txt; test and eval tooling in requirements-dev.txt.
-#
-# Measured 2026-07-31 inside the container: the running process never imports xgboost,
-# catboost, lightgbm, optuna, imblearn, openpyxl, seaborn or plotly. They cost 1.2 GB of
-# image, nvidia-nccl pulled by xgboost accounting for 400 MB on its own.
+# Serving dependencies only. Python 3.12.
+# Training and plotting live in requirements-train.txt; test tooling in requirements-dev.txt.
 
-# ---- Data ----
 numpy==1.26.4
 pandas==2.2.3
 scipy==1.14.1
 
-# ---- Model ----
-# The registered champion is a Random Forest, so scikit-learn is the only estimator library
-# on the serving path. Promoting a boosted-tree champion means adding its library back here.
+# Random Forest is the champion, so no other estimator library is needed to serve.
+# Promoting a boosted-tree model means adding its library back here.
 scikit-learn==1.5.2
 
-# ---- Explainability ----
 shap==0.46.0                 # pulls numba, llvmlite and matplotlib transitively
-
-# ---- Model registry ----
 mlflow==2.19.0               # registry lookup at startup, with a local artefact fallback
 
-# ---- GenAI ----
 litellm==1.55.9
 jinja2==3.1.4
 langfuse==2.57.0
 
-# ---- API ----
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
-pydantic==2.10.4
-pydantic-settings==2.7.0
+pydantic==2.13.4
+pydantic-settings==2.14.2
 
-# ---- Config & utils ----
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 pyyaml==6.0.2
 joblib==1.4.2

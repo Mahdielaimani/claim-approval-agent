@@ -92,11 +92,10 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Caps requests per client per minute, with a separate budget per endpoint.
+    """Caps requests per client per minute, with a separate budget per endpoint."""
 
-    In-memory and therefore per-process: N replicas allow N times the limit. Adequate for a
-    single container, and the reason the AWS design puts throttling at API Gateway.
-    """
+    # In-memory, so per-process: N replicas allow N times the limit. Adequate for a single
+    # container, and the reason the AWS design puts throttling at API Gateway.
 
     def __init__(self, app: Any, config: dict[str, Any] | None = None) -> None:
         super().__init__(app)

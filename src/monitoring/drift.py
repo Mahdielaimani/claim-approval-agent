@@ -21,9 +21,7 @@ WATCH = "watch"
 ALARM = "alarm"
 STABLE = "stable"
 
-# Below this many distinct values a feature is treated as categorical and each value gets
-# its own bin. Quantile edges on an encoded categorical are meaningless: the integers are
-# labels, so the midpoint between two of them does not name anything.
+# Below this, one bin per value: quantile edges on an encoded categorical are meaningless.
 CATEGORICAL_MAX_CARDINALITY = 12
 
 
@@ -128,8 +126,7 @@ class DriftMonitor:
 
     def save(self, directory: Path) -> Path:
         """Persist the reference beside the model it belongs to."""
-        # Versioned with the model, not separately: a reference from a different training
-        # run measures the wrong baseline and would report drift that never happened.
+        # A reference from a different training run would report drift that never happened.
         path = Path(directory) / REFERENCE_FILE
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(self.reference, indent=2), encoding="utf-8")
@@ -172,9 +169,7 @@ class DriftMonitor:
         reference_share = np.asarray(spec["shares"], dtype=float)
 
         floor = 1.0 / (2 * max(len(values), 1))
-        # A bin empty in one distribution makes the log term infinite. Flooring at half an
-        # observation keeps the value finite and ties it to the sample size, rather than to
-        # an arbitrary epsilon that would make PSI depend on a constant nobody chose.
+        # An empty bin makes the log term infinite; the floor scales with the sample size.
         ref = np.maximum(reference_share, floor)
         cur = np.maximum(current_share, floor)
         contributions = (cur - ref) * np.log(cur / ref)
@@ -230,8 +225,7 @@ def _bin_reference(values: pd.Series, n_bins: int) -> dict[str, Any]:
         }
 
     quantiles = np.linspace(0, 1, n_bins + 1)
-    # Duplicate edges collapse when a value dominates, which is common here: several ratios
-    # are zero for most rows. Keeping the deduplicated edges yields fewer, honest bins.
+    # Several ratios are zero for most rows, so deduplicating gives fewer, honest bins.
     edges = np.unique(np.quantile(clean, quantiles))
     edges[0], edges[-1] = -np.inf, np.inf
     counts, _ = np.histogram(clean, bins=edges)
@@ -251,8 +245,7 @@ def _shares(values: pd.Series, spec: dict[str, Any]) -> np.ndarray:
 
     if spec["kind"] == "categorical":
         counts = pd.Series(clean).value_counts()
-        # A level unseen in training lands in no bin, so the shares sum below one. That is
-        # deliberate: it inflates PSI, which is the correct reaction to an unknown category.
+        # An unseen level lands in no bin, so shares sum below one and PSI rises — wanted.
         return np.array([float(counts.get(v, 0)) for v in spec["values"]]) / len(clean)
 
     counts, _ = np.histogram(clean, bins=np.array(spec["edges"], dtype=float))

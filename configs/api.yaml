@@ -5,7 +5,7 @@ service:
   version: 0.1.0
   host: 0.0.0.0
   port: 8000
-  cors_origins: ["*"]      # development only; tightened before any real deployment
+  cors_origins: ["*"]      # development only
 
 endpoints:
   predict:
@@ -18,57 +18,34 @@ endpoints:
     path: /api/v1/health
 
 decision_layer:
-  # The Business Decision Layer sits between the model and the explanation.
-  # The model produces a probability; this layer turns it into a routing
-  # decision. Keeping the two separate means the operating point can be
-  # retuned for business cost without retraining anything.
-  #
-  # The threshold below is a placeholder. It is replaced by the value selected
-  # inside cross-validation in Phase 1.4, which is written to the model config.
-  decline_threshold: 0.50
+  decline_threshold: 0.50    # placeholder; replaced by the cross-validated threshold
 
-  # Human-in-the-Loop. The system is AI-assisted, not AI-autonomous: adverse
-  # decisions carry financial and regulatory weight, and the tabular signal on
-  # 2880 rows does not support unsupervised declining.
-  #
-  # WORDING: the low band is "straight-through processing candidate", never
-  # "auto-approve". A low decline-risk score makes a claim eligible for the
-  # straight-through queue; it is not itself an approval. The distinction is
-  # the one an insurance regulator cares about, so the code uses their term.
   hitl:
     enabled: true
     thresholds:
-      # score = P(Declined)
-      straight_through_below: 0.30   # low decline risk -> no human review required
-      human_review_above: 0.30       # uncertain band -> adjuster review
-      mandatory_review_above: 0.70   # high decline risk -> expert review, always
-    # A decline is never issued by the system alone, at any score.
+      # score = P(Declined). Bands and rationale: DESIGN.md §7.
+      straight_through_below: 0.30
+      human_review_above: 0.30
+      mandatory_review_above: 0.70
     never_auto_decline: true
-    # Additional forced-review triggers, independent of the score. Each of these
-    # overrides the straight-through band.
     force_review_when:
-      - claim_type: Theft            # highest decline rate (20.4%) on 98 claims
-      - policy_status: Grace Period  # 28.6% decline rate on 28 claims — a real
-                                     # pattern, but far too thin to automate
-      - rrp_eur_above: 2500          # high financial exposure
-      - diag_completeness_below: 3   # too little evidence to act on
+      - claim_type: Theft            # 20.4% decline rate on 98 claims
+      - policy_status: Grace Period  # 28.6% on 28 claims — too thin to automate
+      - rrp_eur_above: 2500
+      - diag_completeness_below: 3
 
 middleware:
-  request_id: true          # UUID per request, echoed in the response and logs
-  structured_logging: true  # JSON logs
-  log_pii: false            # issueDesc is hashed, never logged in the clear
-  # /explain is bounded by an external LLM and costs money per call; /predict is
-  # in-process and cheap. Different resources, different limits.
+  request_id: true
+  structured_logging: true
+  log_pii: false             # issueDesc is hashed, never logged in the clear
   rate_limit:
-    predict_per_minute: 100
-    explain_per_minute: 20
-  # Optional API key auth (X-API-Key header). Disabled when API_KEY is empty,
-  # which keeps the Postman demo zero-setup.
+    predict_per_minute: 100  # in-process
+    explain_per_minute: 20   # metered by the LLM provider
   auth:
     header: X-API-Key
     exempt_paths: [/api/v1/health, /docs, /openapi.json, /redoc]
 
 errors:
-  # A provider failure must degrade the explanation, never the decision.
+  # A provider failure degrades the explanation, never the decision.
   llm_failure_returns_prediction: true
   fallback_explanation: template

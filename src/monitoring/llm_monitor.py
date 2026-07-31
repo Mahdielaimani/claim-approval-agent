@@ -28,7 +28,7 @@ MIN_CALLS_FOR_PERCENTILE = 20
 class CallRecord:
     """One LLM call, reduced to the facts needed to bill and diagnose it."""
 
-    # Deliberately no prompt and no response: this file is read by anyone debugging cost,
+    # No prompt and no response here: this file is read by anyone debugging cost,
     # and a claim narrative must not be recoverable from an operations artefact.
     timestamp: str
     persona: str

@@ -1,5 +1,4 @@
-# Local run of the serving stack. Production targets ECS Fargate — see DESIGN.md — so this
-# file exists to make the container reproducible on a laptop, not to describe a deployment.
+# Local run of the serving stack. Production targets ECS Fargate — see DESIGN.md.
 #
 #   docker compose up --build              api only
 #   docker compose --profile tracking up   api + the MLflow UI on :5000
@@ -14,8 +13,7 @@ services:
     ports:
       - "${PORT:-8000}:8000"
 
-    # Optional: with no file and no keys the client runs in mock mode, which is a valid way
-    # to demonstrate the API. A hard requirement here would break a clone-and-run.
+    # Optional: with no keys the client runs in mock mode, so a clone-and-run still works.
     env_file:
       - path: .env
         required: false
@@ -26,17 +24,16 @@ services:
       MLFLOW_TRACKING_URI: /app/mlflow
 
     volumes:
-      # Read-only: the API loads the model and never writes it. A container that can
-      # overwrite its own model is one bug away from an unauditable decision.
+      # Read-only: a container that can overwrite its own model is one bug away from an
+      # unauditable decision.
       - ./artifacts/models:/app/artifacts/models:ro
-      # Writable, and named rather than bind-mounted: the cost ledger must survive a
-      # restart, which is the whole reason it is a file and not a counter.
+      # Named, not bind-mounted: the cost ledger must survive a restart.
       - llm_ledger:/app/artifacts/reports
 
     restart: unless-stopped
 
-    # Inherited from the Dockerfile, but declared here so `depends_on: condition:
-    # service_healthy` works for anything added later.
+    # Inherited from the Dockerfile, but declared here so `depends_on: service_healthy`
+    # works for anything added later.
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8000/api/v1/health"]
       interval: 30s
@@ -44,8 +41,7 @@ services:
       start_period: 20s
       retries: 3
 
-    # SHAP and the model hold a few hundred MB; the cap turns a leak into a restart rather
-    # than a laptop that stops responding.
+    # Turns a leak into a restart rather than an unresponsive laptop.
     deploy:
       resources:
         limits:
@@ -55,9 +51,7 @@ services:
       - no-new-privileges:true
 
   mlflow:
-    # Behind a profile: the UI is for showing experiment history in the demo, and nothing
-    # in the serving path depends on it.
-    profiles: [tracking]
+    profiles: [tracking]   # demo-only; nothing in the serving path depends on it
     image: python:3.12-slim
     container_name: claim-approval-mlflow
     ports:

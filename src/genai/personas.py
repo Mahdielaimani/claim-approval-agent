@@ -161,7 +161,7 @@ def _factors(persona: PersonaConfig, explanation: Any) -> list[dict[str, Any]]:
     if persona.show_shap_values:
         return [c.as_dict() for c in top]
 
-    # Balanced on purpose: showing only what counted against a customer reads as accusation.
+    # Balanced list: showing only what counted against a customer reads as accusation.
     balanced = explanation.increasing(3) + explanation.decreasing(2)
     return [c.as_dict(plain=True) for c in balanced]
 

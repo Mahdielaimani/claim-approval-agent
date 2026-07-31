@@ -25,8 +25,6 @@ class Settings(BaseSettings):
     )
 
     groq_api_key: str = ""
-    # Quota headroom, not a fallback: same vendor, so these survive an exhausted token budget
-    # but not an outage. Measured separate buckets. OpenAI and Gemini are the real fallbacks.
     groq_api_key_2: str = ""
     groq_api_key_3: str = ""
     openai_api_key: str = ""

@@ -24,8 +24,8 @@ curl -s localhost:8000/api/v1/metrics  | jq '{healthy, n_calls, thresholds}'
 
 | `/metrics` threshold | Meaning | Severity |
 |---|---|---|
-| `fallback_rate` breached | The primary provider is failing; a later one is serving | **Warning** — output is still generated |
-| `template_fallback_rate` breached | **No provider answered.** A static template was returned | **Incident** — customers are receiving boilerplate |
+| `fallback_rate` breached | The primary provider is failing; a later one is serving | Warning: output is still generated |
+| `template_fallback_rate` breached | No provider answered. A static template was returned | Incident: customers are receiving boilerplate |
 
 The limit on `template_fallback_rate` is 1%, not 10%. One occurrence is an incident, not a
 rate to tolerate.
@@ -47,11 +47,11 @@ groq → groq_reserve_2 → groq_reserve_3 → openai → gemini
 
 | Log `message` | `error` contains | Cause | Action |
 |---|---|---|---|
-| `llm provider failed` | `RateLimitError`, `tokens per day` | Daily token budget spent on that key | None needed — the next key takes over. Confirm `by_provider` moved on |
+| `llm provider failed` | `RateLimitError`, `tokens per day` | Daily token budget spent on that key | None needed: the next key takes over. Confirm `by_provider` moved on |
 | `llm provider failed` | `insufficient_quota` | The account has no credit. Retries will not help | Top up, or accept the chain moving on |
 | `llm provider failed` | `Timeout` | Provider degraded | Watch `latency_p95_ms`; the chain absorbs it |
-| `llm unavailable, using template` | — | **Every** provider failed | See below |
-| `langfuse unavailable` | — | Tracing only | Not customer-facing. Do not page |
+| `llm unavailable, using template` |: | Every provider failed | See below |
+| `langfuse unavailable` |: | Tracing only | Not customer-facing. Do not page |
 
 **Groq meters tokens per day per key, and the three keys are separate buckets** (measured:
 burning 1 500 tokens on key 3 left key 2 untouched). A single exhausted key is routine.
@@ -73,7 +73,7 @@ between a provider outage and a 500 on a customer request.
 
 ## 2. The container will not start, or /health returns 503
 
-**Symptom** — the container exits at boot, or every endpoint returns 503 with
+**Symptom**, the container exits at boot, or every endpoint returns 503 with
 *"Model not loaded. Train and register a model, then restart."*
 
 This is deliberate. `lifespan` raises rather than serving degraded: **a container that cannot
@@ -94,8 +94,8 @@ Expected: `model.joblib`, `transformers.joblib`, `model_card.json`.
 |---|---|---|
 | `/app/artifacts/models` empty | Volume not mounted, or host path wrong | Check the bind mount in `docker-compose.yml` |
 | `model.joblib` present, `transformers.joblib` missing | Model registered without its fitted transformers | Re-run registration; they are versioned together |
-| `ModuleNotFoundError: xgboost` (or catboost, lightgbm) | **The champion is no longer a Random Forest.** The serving image ships scikit-learn only | Add the library to `requirements.txt` and rebuild. See below |
-| `PermissionError` on `/app/artifacts` | Ownership regression in the Dockerfile | `/app/artifacts` must be owned by `appuser` — it is created and chowned before `USER` |
+| `ModuleNotFoundError: xgboost` (or catboost, lightgbm) | The champion is no longer a Random Forest. The serving image ships scikit-learn only | Add the library to `requirements.txt` and rebuild. See below |
+| `PermissionError` on `/app/artifacts` | Ownership regression in the Dockerfile | `/app/artifacts` must be owned by `appuser`: it is created and chowned before `USER` |
 
 ### The estimator-library coupling
 
@@ -114,7 +114,7 @@ docker run --rm -v "$PWD/artifacts/models:/app/artifacts/models:ro" claim-approv
 
 ## 3. Drift alarm
 
-**Symptom** — the weekly drift job reports `requires_investigation: true`.
+**Symptom**, the weekly drift job reports `requires_investigation: true`.
 
 Score a batch against the frozen reference. `BATCH` is a file of raw claims in the source
 schema; the transformers are the ones the model was fitted with.
@@ -159,9 +159,9 @@ largely insensitive to that shift.
 | Features | Score | Reading | Action |
 |---|---|---|---|
 | stable | stable | Nothing happened | None |
-| **alarm** | stable | Input mix changed in a direction the model does not weigh | Investigate the source, do not retrain |
-| stable | **alarm** | Same inputs, different outputs | **Check for a pipeline or model-version regression first** |
-| **alarm** | **alarm** | Genuine population shift | Retraining candidate |
+| alarm | stable | Input mix changed in a direction the model does not weigh | Investigate the source, do not retrain |
+| stable | alarm | Same inputs, different outputs | Check for a pipeline or model-version regression first |
+| alarm | alarm | Genuine population shift | Retraining candidate |
 
 The third row is the dangerous one: identical inputs producing different scores usually means
 a code change, not a world change.
@@ -206,7 +206,7 @@ Roughly, on a healthy call:
 | Random Forest inference | ~1 ms |
 | SHAP TreeExplainer | ~35 ms |
 | prompt rendering | ~5 ms |
-| **LLM call** | **1 000–3 000 ms** |
+| LLM call | 1 000–3 000 ms |
 | output validation | ~10 ms |
 
 `/predict` measured at 108 ms in the container. Everything above 200 ms on `/explain` is the
@@ -233,7 +233,7 @@ future work in `DESIGN.md`.
 
 | Action | Effect | Safe |
 |---|---|---|
-| `docker compose restart api` | Reloads the model. In-flight requests are lost | Yes — the cost ledger is a named volume and survives |
-| `docker compose down -v` | **Deletes the ledger volume.** Monthly spend resets to zero | Only when the history is expendable |
+| `docker compose restart api` | Reloads the model. In-flight requests are lost | Yes: the cost ledger is a named volume and survives |
+| `docker compose down -v` | Deletes the ledger volume. Monthly spend resets to zero | Only when the history is expendable |
 | Rotating a provider key | The chain skips an entry with no key | Yes, at any time |
-| Replacing `model.joblib` in place | The running process keeps the old model in memory | No — register properly and restart |
+| Replacing `model.joblib` in place | The running process keeps the old model in memory | No: register properly and restart |

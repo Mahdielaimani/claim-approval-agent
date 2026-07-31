@@ -31,10 +31,6 @@ coverage.xml
 *.pem
 *.key
 
-# ---- Local scratch ----
-.claude/
-CLAUDE.md
-notes.md
 
 # ---- Data (proprietary / not redistributed) ----
 data/*

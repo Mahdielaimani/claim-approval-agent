@@ -1,22 +1,16 @@
-# Provider equivalence, not prompt A/B testing.
-#
-# The pipeline falls through Groq -> OpenAI -> Gemini when a provider times out or rate
-# limits. That fallback runs on the critical path and is otherwise never exercised: in
-# normal operation the first provider always answers. This suite forces all three to
-# answer the same prompts, so the fallback is tested code rather than assumed code.
+# Provider equivalence, not prompt A/B testing. In normal operation the first provider
+# always answers, so the Groq -> OpenAI -> Gemini fallback is never exercised. This forces
+# all three through the same prompts.
 #
 # Run:  PROMPTFOO_REQUEST_TIMEOUT_MS=20000 npx promptfoo@latest eval -c evaluation/promptfoo.yaml
 # View: npx promptfoo@latest view
 #
-# The timeout is not optional. promptfoo defaults to 300 s per request and retries four
-# times, so one provider with a dead key turns a two-minute run into half an hour. 20 s
-# matches generation.timeout_seconds in configs/llm.yaml: a fallback slower than the
-# primary's own timeout would never be reached in production anyway.
+# The timeout is not optional: promptfoo defaults to 300 s with four retries, so one dead
+# key turns a two-minute run into half an hour. 20 s matches generation.timeout_seconds.
 #
-# Prompts come from evaluation/render_prompt.py, which renders the real templates through
-# the real Jinja2 environment. Promptfoo's own templating is Nunjucks and would silently
-# diverge from Jinja2 (`claim.items()` alone breaks), which would test two template engines
-# instead of three providers.
+# Prompts render through the real Jinja2 environment via render_prompt.py. Promptfoo's own
+# templating is Nunjucks and diverges (`claim.items()` breaks), which would test two
+# template engines instead of three providers.
 
 description: Groq, OpenAI and Gemini must produce interchangeable explanations
 
@@ -43,8 +37,8 @@ providers:
 defaultTest:
   assert:
     - type: is-json
-    # The claim under test is routed for review. A provider that states an outcome is
-    # not merely lower quality — it is unusable, because the fallback must be silent.
+    # The claim under test is routed for review, so a provider that states an outcome is
+    # unusable, not merely lower quality.
     - type: not-icontains
       value: was declined
     - type: not-icontains
@@ -66,9 +60,8 @@ tests:
             key_factors: { type: array, minItems: 1, maxItems: 4, items: { type: string } }
             next_steps: { type: array, minItems: 1, maxItems: 3, items: { type: string } }
           additionalProperties: false
-      # Every provider must respect the persona boundary, not just the one usually serving.
-      # A subset of customer_blocklist in configs/llm.yaml: the runtime OutputValidator
-      # enforces all 22 terms, these are the ones a provider is most likely to volunteer.
+      # A subset of customer_blocklist in configs/llm.yaml — the runtime OutputValidator
+      # enforces all 22. These are the terms a provider is most likely to volunteer.
       - type: not-icontains
         value: shap
       - type: not-icontains
@@ -110,8 +103,8 @@ tests:
             human_oversight: { type: string }
             limitations: { type: string }
           additionalProperties: false
-      # Provenance is copied from context, never generated. A provider that paraphrases
-      # the model version produces an audit trail that does not match the registry.
+      # Copied from context, never generated: a paraphrased model version produces an
+      # audit trail that does not match the registry.
       - type: contains
         value: random_forest
       - type: contains

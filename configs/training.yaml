@@ -1,54 +1,34 @@
-# Training pipeline configuration.
-# Every value here is a decision that must be defensible; the comment says why.
+# Training pipeline configuration. Consumed by src/training/.
 
 data:
   path: ./data/claim_use_case_dataset.xlsx
   target_column: status
-  positive_class: Declined        # the minority, business-relevant class
+  positive_class: Declined
   random_state: 42
 
 currency:
-  # The dataset mixes currencies: SE amounts are SEK, NL and FI are EUR.
-  # Uncorrected this is country leakage — the model learns "large amount = Sweden"
-  # and SHAP splits country's true contribution across four features, destroying
-  # the attribution the LLM explanations depend on.
-  #
-  # The rate below is derived from the data, not assumed. Median ratios SE/EUR:
-  #   rrp        14990 / 1449 = 10.35
-  #   excessFee    619 /   59 = 10.49
-  #   balanceRRP 14490 / 1399 = 10.36
+  # SE is SEK, NL and FI are EUR. Uncorrected this is country leakage. Rate from median
+  # ratios (rrp 10.35, excessFee 10.49, balanceRRP 10.36). DESIGN.md §4.1.
   base_currency: EUR
   sek_to_eur_rate: 10.3
   countries_in_sek: [SE]
   columns: [rrp, excessFee, balanceRRP]
 
 cleaning:
-  # Zero variance in this extract — no information, and their constancy is an
-  # artefact of a single-manufacturer export rather than a property of the world.
   drop_constant: [deviceCost, relationship, make]
-  # Bit-identical to balanceRRP across all 2880 rows.
-  drop_duplicate: [oldBalanceRRP]
-  # Single value (0) plus 65% missing.
-  drop_degenerate: [smashed, frontOrBackCamera]
-  # productDesc restates `coverage` in the local language — no extra signal.
-  #
-  # productName is deliberately NOT dropped. It reads like redundant free text
-  # and the obvious move is to discard it, but it is a composite code
-  # (SE_MANDATORY_ADLD_24M_UPFRONT_SMARTPHONE) carrying four signals that exist
-  # nowhere else in the file. It is mined in feature_engineer.py, then dropped.
+  drop_duplicate: [oldBalanceRRP]                   # bit-identical to balanceRRP
+  drop_degenerate: [smashed, frontOrBackCamera]     # single value plus 65% missing
   drop_redundant_text: [productDesc]
-  # Free text held out of the feature matrix and routed to the LLM instead.
-  hold_out_text: [issueDesc, other]
+  hold_out_text: [issueDesc, other]                 # routed to the LLM, not the model
 
   date_columns: [policyStartDate, policyEndDate, purchaseDate]
   date_parse:
     format: mixed              # the file contains both ISO datetimes and DD/MM/YYYY
-    dayfirst: true             # correct for all three European locales
+    dayfirst: true
 
 missing_values:
-  # Diagnostics are missing not-at-random: absence reflects the intake channel,
-  # not the device. Imputing 0 would assert "tested, found broken" — false.
-  # -1 keeps "never assessed" as its own state.
+  # Missing not-at-random: absence reflects the intake channel. 0 would assert
+  # "tested, found broken"; -1 keeps "never assessed".
   diagnostic_sentinel: -1
   diagnostic_columns:
     [turnOnOff, touchScreen, frontCamera, backCamera, audio, mic,
@@ -59,9 +39,7 @@ missing_values:
   numeric_columns: [excessFee]
 
 features:
-  ratios:
-    # Currency-invariant by construction: 500/1000 and 5000/10000 both give 0.5.
-    # These stay meaningful even if the FX rate above is imperfect.
+  ratios:                        # currency-invariant, so they survive an imperfect FX rate
     - fee_to_rrp_ratio
     - balance_ratio
     - remaining_balance_ratio
@@ -69,31 +47,20 @@ features:
     - policy_duration_days
     - days_purchase_to_policy
   diagnostic_meta:
-    # How many checks were actually run. Tracks the intake channel, and is
-    # predictive in its own right.
     - diag_completeness
-    # The 0/1 polarity of the diagnostic columns is undocumented in the source,
-    # so the two values are counted separately rather than collapsed into a
-    # "total_failures" number that would hardcode a guess about which one means
-    # "broken". SHAP reports the direction from the data.
-    - diag_ones
+    - diag_ones                  # polarity undocumented, so the two are counted separately
     - diag_zeros
-  # Mined out of the composite productName code.
   product_name_derived:
-    - contract_duration_months # 6 / 12 / 24 — absent from every other column
-    - is_mandatory_policy      # MANDATORY vs VOLUNTARY vs DISCOUNT vs EPP
-    - payment_mode             # MONTHLY vs UPFRONT
-    - device_type_parsed       # fills deviceType: 48.4% missing -> 0%
+    - contract_duration_months   # absent from every other column
+    - is_mandatory_policy
+    - payment_mode
+    - device_type_parsed         # fills deviceType: 48.4% missing -> 0%
   text_meta:
-    # Metadata about the narrative, not its content. The text itself stays out
-    # of the feature matrix and goes to the LLM.
-    - issue_desc_length
+    - issue_desc_length          # metadata only; the narrative goes to the LLM
     - issue_desc_word_count
   frequency_encoded: [model, productCode, retailerName]
   label_encoded: [claimType, coverage, country, channel, policyStatus, deviceType]
-  # Normalised absolute amounts are kept through training and pruned afterwards
-  # only if SHAP shows they add nothing beyond the ratios. Empirical, not assumed.
-  keep_absolute_amounts: true
+  keep_absolute_amounts: true    # pruned later only if SHAP shows the ratios suffice
 
 split:
   strategy: stratified_kfold
@@ -101,42 +68,32 @@ split:
   test_size: 0.2
 
 models:
-  # All six are trained on identical folds so the rejections rest on measurement.
-  candidates:
-    - logistic_regression      # linear baseline
-    - random_forest            # ensemble baseline
-    - xgboost                  # expected production model
+  candidates:                    # identical folds, so the rejections rest on measurement
+    - logistic_regression
+    - random_forest
+    - xgboost
     - catboost
     - lightgbm
-    - mlp                      # neural baseline; needs scaling + SMOTE
+    - mlp
   imbalance:
-    scale_pos_weight: 5.36     # 2427 Completed / 453 Declined
+    scale_pos_weight: 5.36       # 2427 Completed / 453 Declined
     catboost: Balanced
     sklearn_class_weight: balanced
     mlp_resampling: smote
 
 tuning:
   library: optuna
-  # PR-AUC, not F1, and the reason is not cosmetic. Scoring F1 inside a trial needs a
-  # threshold, and the only cheap one is fitted on the model's own training predictions —
-  # which tree models separate almost perfectly, so it does not transfer to validation.
-  # Measured on 20 trials: tuning Random Forest against F1 made it worse (0.336 -> 0.317),
-  # while tuning against PR-AUC improved it (0.336 -> 0.344).
-  #
-  # PR-AUC is threshold-free, so the search optimises ranking quality only, and the
-  # operating threshold is chosen afterwards inside the honest nested cross-validation.
-  # Selection between models is still reported on F1-Declined.
+  # F1 inside a trial needs a threshold fitted on training predictions, which tree models
+  # separate almost perfectly. 20 trials, Random Forest: F1 0.336 -> 0.317, PR-AUC -> 0.344.
   optimize_metric: pr_auc
   direction: maximize
   n_trials: 50
-  tune_top_n: 3                  # only the three strongest baselines are tuned
+  tune_top_n: 3
   pruner: median
 
 evaluation:
   metrics: [f1_declined, precision_declined, recall_declined, roc_auc, pr_auc]
-  # Chosen inside CV folds, never on the full set — a threshold tuned on all the
-  # data does not transfer.
-  threshold_search: true
+  threshold_search: true         # inside CV folds; one tuned on all data does not transfer
   threshold_range: [0.05, 0.95]
   threshold_step: 0.01
 
@@ -144,7 +101,4 @@ mlflow:
   tracking_uri: ./mlflow
   experiment_name: claim-approval-agent
   register_model: true
-  # Deliberately algorithm-agnostic. Naming the registry entry after the algorithm was a
-  # mistake the benchmark exposed: the expected winner was XGBoost and Random Forest won.
-  # The serving contract is "the model in Production", not "the XGBoost model".
-  model_name: claim-approval-model
+  model_name: claim-approval-model   # algorithm-agnostic: Random Forest won, not XGBoost

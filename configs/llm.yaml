@@ -1,26 +1,12 @@
 # GenAI / LLM configuration. Consumed by src/genai/.
-# All provider access goes through LiteLLM so a provider change is a config
-# change, never a code change.
+# All provider access goes through LiteLLM, so a provider change is a config change.
 
-# An ordered chain, not a primary/fallback pair. Each entry is tried in turn; one with
-# no key configured is skipped rather than counted as a failure.
-#
-# Three separate vendors on purpose. A fallback that shares infrastructure with the
-# primary is not a fallback — a single outage would take both down. Groq, OpenAI and
-# Google have nothing in common but the LiteLLM interface in front of them.
-#
-# Changing the order, or adding a fourth vendor, is an edit to this list. No code
-# changes, which is the entire reason LiteLLM is in the stack.
+
 providers:
   - name: groq
     model: groq/llama-3.3-70b-versatile
-    api_key_env: GROQ_API_KEY
-    # First because it is free and fast. Llama 3.3 70B holds the persona constraints
-    # and the JSON schema reliably at temperature 0.1.
-  # Quota headroom, not fallbacks. Groq meters tokens per day and the free tier runs out well
-  # before the model does. Measured 30/07: burning 1 500 tokens on key 3 left key 2 untouched,
-  # so these really are separate buckets. They survive an exhausted budget; they do not
-  # survive a Groq outage, which is what the two other vendors below are for.
+    api_key_env: GROQ_API_KEY   # free and fast; holds the schema at temperature 0.1
+ 
   - name: groq_reserve_2
     model: groq/llama-3.3-70b-versatile
     api_key_env: GROQ_API_KEY_2
@@ -29,27 +15,20 @@ providers:
     api_key_env: GROQ_API_KEY_3
   - name: openai
     model: gpt-4o-mini
-    api_key_env: OPENAI_API_KEY
-    # Strongest structured-JSON adherence of the three. The pipeline depends on schema
-    # compliance far more than on prose quality.
+    api_key_env: OPENAI_API_KEY  # strongest structured-JSON adherence of the three
   - name: gemini
     model: gemini/gemini-2.0-flash
     api_key_env: GEMINI_API_KEY
 
 generation:
-  temperature: 0.1        # near-deterministic; comparable claims must get
-                          # comparable explanations. Creative variance is a
-                          # defect here, not a feature.
+  temperature: 0.1        # comparable claims must get comparable explanations
   max_tokens: 1024
   timeout_seconds: 20
   num_retries: 2
-  # LiteLLM switches to the fallback automatically on these conditions.
   fallback_on: [timeout, rate_limit, api_error, content_filter]
 
 mock_mode:
-  # Active when no provider key is set. Returns deterministic structured JSON so
-  # tests and CI run with no network and no cost.
-  enabled_when_no_api_key: true
+  enabled_when_no_api_key: true   # deterministic JSON, so CI runs with no network or cost
 
 prompts:
   template_dir: ./prompts
@@ -63,8 +42,7 @@ prompts:
 personas:
   customer:
     top_n_shap: 5
-    show_score: false           # a probability tells a customer nothing useful
-                                # and invites argument about the number
+    show_score: false           # a probability tells a customer nothing and invites argument
     show_shap_values: false
     show_next_steps: true
     show_risk_flags: false
@@ -90,30 +68,24 @@ personas:
     tone: formal, compliance-oriented
 
 validation:
-  # Runs on every LLM response before it leaves the service. The prompt asks; this
-  # enforces. Measured on 2026-07-29: with a system prompt explicitly forbidding it,
+  # The prompt asks; this enforces. Measured 2026-07-29: with a system prompt forbidding it,
   # Llama 3.3 still wrote "the claim was declined" about a straight-through candidate.
-  # An instruction is not a guarantee.
   require_json: true
   strip_markdown_fences: true
-  # Per persona, because each template asks for a different schema.
   required_fields:
     customer: [summary, key_factors, next_steps]
     adjuster: [summary, key_factors, risk_assessment, review_notes]
     auditor: [summary, key_factors, provenance_record, human_oversight, limitations]
-  # Terms that must never reach a customer response. Model names are listed because a
-  # leaked algorithm name is a disclosure, and the winner changed once already.
+  # Model names included: a leaked algorithm name is a disclosure.
   customer_blocklist:
     [shap, shapley, probability, confidence score, model predicts, threshold,
      random forest, xgboost, catboost, lightgbm, llama, gpt, gemini, groq,
      feature importance, classifier, training data, base rate, attribution,
      algorithm, machine learning, decline risk score]
-  # Wording that asserts an outcome the decision record does not support.
   forbidden_everywhere: [auto-approved, automatically approved, auto-declined]
   check_sentiment_consistency: true
   check_numeric_grounding: true
-  # Numbers below this magnitude are treated as prose ("two factors", "step 3") rather
-  # than as statistics, so grounding does not fire on ordinary counting.
+  # Below this magnitude a number is prose ("two factors", "step 3"), not a statistic.
   grounding_min_magnitude: 10.0
   grounding_tolerance: 0.01
   max_retries_on_failure: 1
@@ -133,8 +105,6 @@ evaluation:
       hallucination: 0.20    # lower is better
       persona_adherence: 0.70
   promptfoo:
-    # Scoped deliberately: not prompt A/B, but proof that the fallback provider
-    # behaves like the primary. An unvalidated fallback is untested code sitting
-    # on the critical path.
+    # Not prompt A/B: proof that the fallback provider behaves like the primary.
     purpose: provider_equivalence
     config: ./evaluation/promptfoo.yaml

@@ -1,6 +1,5 @@
 [tool.ruff]
-# 100 rather than the 88 default: the comment convention caps at 100, and the data
-# pipeline's column names are long enough that 88 forces unhelpful wrapping.
+# 100 rather than 88: the data pipeline's column names force unhelpful wrapping at 88.
 line-length = 100
 target-version = "py312"
 
@@ -12,9 +11,9 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-# Declared explicitly because the local MLflow store is a directory named `mlflow/`. Without
-# this, ruff classifies the import as first-party on a developer machine and third-party on a
-# clean checkout, so import order — and the CI result — depends on a gitignored folder.
+# The local MLflow store is a directory named `mlflow/`, so without this ruff classifies the
+# import as first-party locally and third-party on a clean checkout — CI depends on a
+# gitignored folder.
 known-third-party = ["mlflow"]
 
 [tool.ruff.lint.per-file-ignores]
@@ -24,10 +23,9 @@ known-third-party = ["mlflow"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-# List form, not a string: pytest splits a string addopts with shlex in non-POSIX mode on
-# Windows, which keeps the quotes and silently fails to deselect anything.
-# llm_eval is opt-in because real provider calls cost money, take seconds, and are graded
-# by a judge that is itself sampled — run it before a release, not on every commit.
+# List form, not a string: on Windows pytest shlex-splits a string addopts in non-POSIX
+# mode, keeps the quotes, and silently deselects nothing.
+# llm_eval is opt-in — real provider calls cost money and are graded by a sampled judge.
 addopts = ["-q", "--strict-markers", "-m", "not llm_eval"]
 asyncio_default_fixture_loop_scope = "function"
 markers = [

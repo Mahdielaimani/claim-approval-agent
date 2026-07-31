@@ -167,7 +167,7 @@ class Preprocessor:
         return df
 
     def _fix_anomalies(self, df: pd.DataFrame) -> pd.DataFrame:
-        # NaN, not 0: XGBoost models missingness natively and 0 would distort every ratio.
+        # NaN, not 0: a zero price is not a free device, and it would distort every ratio.
         counts: dict[str, int] = {}
         if "rrp" in df.columns:
             bad = df["rrp"] <= 0
