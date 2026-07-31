@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypedDict
 
 import numpy as np
 import pandas as pd
@@ -85,9 +85,27 @@ class CVResult:
         return pd.DataFrame([f.as_dict() for f in self.folds])
 
 
+class ThresholdMetrics(TypedDict):
+    """Return shape of evaluate_at_threshold, unpacked straight into FoldMetrics."""
+
+    # A TypedDict rather than dict[str, float]: the four confusion-matrix entries are counts,
+    # and a plain float mapping silently widens them where FoldMetrics declares int.
+    threshold: float
+    f1_declined: float
+    recall_declined: float
+    precision_declined: float
+    roc_auc: float
+    pr_auc: float
+    brier: float
+    true_negatives: int
+    false_positives: int
+    false_negatives: int
+    true_positives: int
+
+
 def evaluate_at_threshold(
     y_true: np.ndarray, y_prob: np.ndarray, threshold: float
-) -> dict[str, float]:
+) -> ThresholdMetrics:
     """Compute Declined-class metrics at a given decision threshold."""
     y_pred = (y_prob >= threshold).astype(int)
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()

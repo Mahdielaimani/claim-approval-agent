@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Any
 
 import joblib
-import pandas as pd
-
 import mlflow
 import mlflow.sklearn
+import pandas as pd
 from mlflow.tracking import MlflowClient
+
 from src.common.logger import get_logger
 from src.common.settings import get_settings, get_training_config
 from src.models.tracking import configure_mlflow
@@ -71,7 +71,8 @@ def register(
     configure_mlflow()
 
     client = MlflowClient()
-    source_run = run_id or (mlflow.active_run().info.run_id if mlflow.active_run() else None)
+    active = mlflow.active_run()
+    source_run = run_id or (active.info.run_id if active else None)
     if source_run is None:
         raise RuntimeError("register() needs an active MLflow run or an explicit run_id.")
 

@@ -62,19 +62,23 @@ flowchart TD
     B --> C[Pydantic validation]
     C --> D[Preprocess + features]
     D --> E[Model prediction]
-    E --> F{Business Decision Layer}
-    F -->|low risk| G[Auto decision]
+    E --> F{HITL gate}
+    F -->|low risk| G[Straight-through candidate]
     F -->|uncertain / high value / theft| H[Human review queue]
     G --> I[SHAP explanation]
     H --> I
     I --> J[Jinja2 prompt builder]
     J --> K[LiteLLM]
-    K -->|primary| L[GPT-4o-mini]
-    K -->|fallback| M[Gemini Flash]
-    L --> N[Output Validator]
-    M --> N
-    N --> O[Persona response]
-    O --> P[JSON + Langfuse trace]
+    K -->|1| L[Groq Llama 3.3]
+    K -->|2| M[OpenAI]
+    K -->|3| N[Gemini]
+    K -->|all down| T[Static template]
+    L --> V[Output Validator]
+    M --> V
+    N --> V
+    T --> V
+    V --> O[Persona response]
+    O --> P[JSON + Langfuse trace + cost ledger]
 ```
 
 ### Personas
@@ -114,10 +118,34 @@ the loop.
 ## Setup
 
 ```bash
-make install-dev            # venv on Python 3.12 + all tooling
+make install-dev            # venv on Python 3.12 + training and test tooling
 cp .env.example .env        # API keys optional — without them the LLM runs in mock mode
-# place data/claim_use_case_dataset.xlsx
+make test                   # 118 tests, no dataset and no keys required
 ```
+
+### What runs on a fresh clone, and what does not
+
+The source extract is proprietary and the trained model is derived from it, so **neither is in
+this repository**. That splits the project in two for a reviewer:
+
+| Without the dataset | Needs `data/claim_use_case_dataset.xlsx` |
+| --- | --- |
+| `make test` — 113 tests run, 5 integration tests skip | `make train` — benchmark, tune, register (~8 min) |
+| `make lint`, `make typecheck` | `make serve` / `docker compose up` — the API refuses to start without a model |
+| Read the notebooks — all cells are committed **with their outputs** | `make eda` |
+
+The three notebooks are the fastest way to see the measured results without running anything:
+model comparison, SHAP attribution, HITL routing and the three persona explanations are all
+rendered in place.
+
+Starting the API without a model is a **deliberate** failure: `lifespan` raises rather than
+serving, because a container that cannot decide a claim must never pass a health check.
+
+Three dependency sets, because the serving image should not carry the training stack:
+`requirements.txt` (serve) · `requirements-train.txt` (train, tune, plot) ·
+`requirements-dev.txt` (both, plus test and evaluation tooling). Splitting them took the
+image from **3.56 GB to 1.76 GB** — measured inside the container, the running process never
+imports xgboost, catboost, lightgbm, optuna or the plotting libraries.
 
 ## Quick start
 
@@ -127,43 +155,64 @@ make train          # benchmark 6 models, tune top 3, register the winner
 make evaluate       # cross-validated metrics and reports
 make serve          # API on http://localhost:8000  (docs at /docs)
 make test           # pytest
-make eval-llm       # DeepEval: faithfulness, relevancy, hallucination
+make eval-llm       # DeepEval: faithfulness, relevancy, hallucination  (opt-in, calls providers)
 make eval-providers # Promptfoo: fallback provider equivalence
+make drift-reference # freeze the training distribution the drift monitor compares against
 ```
 
 Container:
 
 ```bash
-make docker-build && make docker-run
+docker compose up --build              # API on :8000, model mounted read-only
+docker compose --profile tracking up   # + MLflow UI on :5000
 ```
+
+`make test` runs 118 tests with no network and no keys. `make eval-llm` is **excluded from
+the default run** — it calls real providers, so it costs money and is graded by a judge that
+is itself sampled.
 
 ## API
 
-| Endpoint | Purpose | Target |
-| --- | --- | --- |
-| `POST /api/v1/predict` | Score and routing decision — no LLM call | < 200 ms |
-| `POST /api/v1/explain` | Score + SHAP + persona explanation | < 5 s |
-| `GET /api/v1/health` | Model version, prompt version, provider reachability | < 50 ms |
+| Endpoint | Purpose | Target | Measured |
+| --- | --- | --- | --- |
+| `POST /api/v1/predict` | Score and routing decision — **no LLM call** | < 200 ms | 108 ms in container |
+| `POST /api/v1/explain` | Score + SHAP + persona explanation | < 5 s | 1.4–3.2 s |
+| `GET /api/v1/health` | Model version, prompt version, provider chain | < 50 ms | — |
+| `GET /api/v1/metrics` | LLM spend, fallback rate, latency against thresholds | — | — |
+| `GET /api/v1/personas` | What each audience is permitted to see | — | — |
 
-Demo `curl` commands land here at Phase 3.1.
+```bash
+curl -X POST localhost:8000/api/v1/predict \
+  -H "Content-Type: application/json" -d @examples/claim_borderline.json
+
+curl -X POST localhost:8000/api/v1/explain \
+  -H "Content-Type: application/json" \
+  -d "$(jq '. + {persona:"customer"}' examples/claim_borderline.json)"
+```
+
+The two are separate endpoints on purpose: **the decision has no external dependency.** If
+every LLM provider is down, `/predict` is unaffected and `/explain` returns a static
+template. Full request/response catalogue: **[docs/API_TESTING.md](docs/API_TESTING.md)**.
+Incident procedures: **[docs/runbook.md](docs/runbook.md)**.
 
 ## Technology
 
 | Layer | Choice | Why |
 | --- | --- | --- |
-| Model | XGBoost, selected against 5 alternatives | Native missing-value handling, exact TreeSHAP, mature in finance/insurance |
+| Model | **Random Forest**, selected against 5 alternatives | Chosen on measurement, not expectation. Best F1-Declined, recall *and* calibration among tuned candidates — it beat XGBoost on every criterion except the one that favoured XGBoost |
 | Explainability | SHAP `TreeExplainer` | Exact Shapley values in polynomial time — fast enough for the request path |
 | Tuning | Optuna | Bayesian search with pruning; ~50 trials replaces thousands |
 | Tracking | MLflow | Experiments, params, metrics, model registry, reproducibility |
-| LLM access | LiteLLM | One interface for OpenAI and Gemini; automatic fallback and retry |
-| LLM | GPT-4o-mini primary, Gemini Flash fallback | Reliable structured JSON at low cost; fallback is a *different vendor* |
+| LLM access | LiteLLM | One ordered chain, automatic fallback and retry. Adding a provider is a config line |
+| LLM chain | Groq Llama 3.3 → OpenAI → Gemini | Three separate vendors: a fallback sharing infrastructure with the primary is not a fallback |
 | Prompts | Jinja2, git-versioned | Prompt changes never touch Python |
 | Validation | Pydantic v2 + custom `OutputValidator` | Type safety at the boundary, hallucination and leakage checks on the way out |
-| LLM observability | Langfuse | Prompt, response, tokens, cost, latency, errors |
-| LLM evaluation | DeepEval (CI) + Promptfoo (provider equivalence) | Code correctness and output *quality* are different tests |
+| LLM observability | Langfuse | Cost, latency, provider, tokens — and a SHA-256 digest of the prompt, never its text |
+| LLM evaluation | DeepEval + Promptfoo | Code correctness and output *quality* are different tests |
+| Monitoring | PSI drift + cost ledger, ~40 lines each | Small enough to defend term by term; a library adds a surface nobody has read |
 | API | FastAPI | Async, Pydantic-native, automatic OpenAPI docs |
-| Container | Docker | Identical environment local → CI |
-| CI | GitHub Actions | pytest + DeepEval + image build on every push |
+| Container | Docker, multi-stage | Serving image carries no build toolchain and no training stack |
+| CI | GitHub Actions | ruff → mypy → pytest → docker build, **with no secrets** — mock mode makes the pipeline free, offline and deterministic |
 
 Full justification with rejected alternatives: **[DESIGN.md](DESIGN.md)**.
 
@@ -171,22 +220,25 @@ Full justification with rejected alternatives: **[DESIGN.md](DESIGN.md)**.
 
 ```
 claim-approval-agent/
-├── configs/          api.yaml · training.yaml · llm.yaml
-├── data/             source dataset (git-ignored)
-├── notebooks/        01_eda · 02_model_training · 03_model_comparison · 04_demo
+├── configs/          api · training · llm · monitoring  (.yaml)
+├── data/             source dataset (git-ignored, proprietary)
+├── docs/             API_TESTING.md · runbook.md
+├── examples/         7 demo claims, one per routing band
+├── notebooks/        01_eda · 02_model_comparison · 03_demo
+├── postman/          collection, 17 requests · 97 assertions
 ├── prompts/          system · customer · adjuster · auditor  (.jinja2)
-├── evaluation/       promptfoo.yaml
+├── evaluation/       promptfoo.yaml · render_prompt.py · contexts/
 ├── src/
 │   ├── common/       logger · settings
-│   ├── data/         loader · validator · preprocessor · feature_engineer
-│   ├── models/       train · compare · evaluate · registry
-│   ├── explainability/  shap_service
-│   ├── genai/        llm_client · prompt_engine · personas · output_validator
-│   ├── api/          app · routes · schemas
-│   └── monitoring/   metrics · drift · llm_monitor
-├── tests/
-├── artifacts/        models · plots · reports
-└── infrastructure/   aws (design only) · ci_cd
+│   ├── data/         loader · preprocessor · feature_engineer
+│   ├── models/       evaluator · trainer · tuner · tracking · registry
+│   ├── explainability/  shap_service · feature_labels
+│   ├── genai/        personas · llm_client · output_validator · explanation_pipeline
+│   ├── api/          app · routes · schemas · middleware
+│   └── monitoring/   drift · llm_monitor
+├── tests/            118 tests
+├── artifacts/        models · plots · reports  (git-ignored, regenerable)
+└── .github/workflows/ci.yml
 ```
 
 ## Deployment scope

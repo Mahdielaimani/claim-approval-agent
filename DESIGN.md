@@ -256,17 +256,19 @@ nothing may be adopted that degrades it.**
 | Benchmark | LR · RF · XGBoost · CatBoost · LightGBM · MLP | Identical folds, so rejections rest on a number rather than an assertion |
 | Explainability | **SHAP `TreeExplainer`** | Exact Shapley values in polynomial time, milliseconds per prediction — fast enough for the request path |
 | Tuning | **Optuna** | TPE with pruning: ~50 trials where grid search needs thousands |
-| Tracking | **MLflow** | Open-source, self-hostable, registry with stage transitions; artefacts are commercially sensitive |
+| Tracking | **MLflow** | Open-source and self-hostable, which matters because the artefacts are commercially sensitive. Promotion uses registry **aliases**, not stages — stages were deprecated in 2.9 and are removed in 3.x |
 | LLM access | **LiteLLM** | One interface, provider fallback, retry. Vendor change is a config line |
-| LLM primary / fallback | **GPT-4o-mini / Gemini Flash** | Structured-JSON reliability at low cost; the fallback is a *different vendor* — a shared outage would defeat the purpose |
+| LLM chain | **Groq Llama 3.3 → OpenAI → Gemini** | An ordered chain, not a pair. The fallbacks are *different vendors*: a fallback sharing infrastructure with the primary is not a fallback. Two extra Groq keys sit between them as quota headroom — separate token buckets, same vendor, so they survive an exhausted budget and not an outage |
 | Prompts | **Jinja2 files** | `prompt = f"..."` makes every wording change a code change and prompt versioning impossible |
 | API | **FastAPI** | Native async, Pydantic validation at the boundary, generated OpenAPI |
 | LLM observability | **Langfuse** | Per-call prompt, tokens, cost, latency, provider, errors |
 | LLM evaluation | **DeepEval** | Faithfulness, relevancy, hallucination — as pytest, so a prompt regression fails the build |
 | Provider equivalence | **Promptfoo** | Narrow scope: proving the fallback behaves like the primary |
+| Drift detection | **PSI, ~40 lines** | Population Stability Index over frozen training bins. Small enough to defend term by term; a library here would add a surface nobody has read |
+| CI | **GitHub Actions** | ruff → mypy → pytest → docker build, and **no secrets**: with no provider key the LLM client runs in mock mode, so the pipeline is free, offline and deterministic |
 | Deployment | **Docker**, AWS by design | Identical environment dev → CI → demo; production architecture documented, not provisioned |
 
-Three of these need more than a line.
+Four of these need more than a line.
 
 ### 5.1 Model selection — the data overruled the expectation
 
@@ -319,6 +321,39 @@ customer persona, does not leak SHAP terminology, and handles Swedish and Dutch 
 unvalidated fallback is untested code on the critical path. It is **not** used here for prompt
 A/B testing — that would not justify the tool at this scope.
 
+### 5.2 Synthetic minority data — tested, then rejected
+
+**Decision: no synthetic claims are generated for training.** SMOTE, ADASYN and naive
+duplication were all evaluated.
+
+None adds information. **PR-AUC — threshold-free, so it measures ranking quality rather than
+an operating point — does not move**, and naive duplication matches SMOTE. If interpolation
+created signal, it would beat copy-paste.
+
+The reason is measurable: among the five nearest neighbours of a declined claim, only **19%
+are declines**, against 15.7% at random. The minority class is not clustered, so SMOTE
+manufactures synthetic declines inside regions occupied by genuine approvals.
+
+The constraint is signal, not volume. And there is a second reason that outranks the first:
+**fabricating claim records to train an insurance decision model is manufacturing evidence.**
+Synthetic data is used here only for tests and the API demo, where it is labelled as such.
+
+### 5.3 What is monitored after deployment
+
+| Signal | Threshold | Why it exists |
+| --- | --- | --- |
+| PSI per feature | watch 0.10 · alarm 0.20 | Credit-scoring convention, not derived from this dataset — a triage aid, not a decision rule |
+| **PSI on the score itself** | same | Measured: a batch can breach on nine features while the score distribution stays inside its band. Every input can move in directions the model does not weigh |
+| Provider fallback rate | 10% | The earliest available sign that the primary is degrading, and it costs nothing to collect |
+| Template fallback rate | **1%** | No LLM answered at all. One occurrence is an incident, not a rate to tolerate |
+| `/explain` p95 latency | 5 000 ms | Suppressed below 20 calls: a percentile over a handful of samples is not a measurement |
+| Monthly LLM spend | alert at **80%** of budget | An alarm that fires once the money is spent is a report, not an alert |
+
+Cost and latency are recorded per call in an append-only ledger — a file rather than a
+counter, because the API runs multiple workers and restarts, and a counter that resets on
+deploy cannot answer *"what did we spend this month?"*. It carries no prompt and no response:
+an operations artefact must not make a claim narrative recoverable.
+
 ---
 
 ## 6. Technologies deliberately excluded
@@ -331,6 +366,8 @@ A/B testing — that would not justify the tool at this scope.
 | **LIME** | Unstable local surrogates — unacceptable for an audit trail |
 | **DSPy** | Automatic prompt optimisation is unnecessary for three fixed personas |
 | **RAGAS** | Built for retrieval-augmented systems; there is no retrieval |
+| **SMOTE / synthetic claims** | Measured, not assumed: PR-AUC unchanged, and naive duplication matches SMOTE — see §5.2. Beyond the measurement, generating claim records to train a decision model is manufacturing evidence |
+| **Evidently AI** | PSI is ~40 lines and every term is defensible. A drift library adds a dependency surface to a component whose whole job is to be trusted |
 | **Redis semantic cache** | Claims are near-unique; hit rate would be negligible. Noted as a future option |
 | **Guardrails AI / NeMo** | Aimed at open-ended conversation. Output here is a fixed schema; the custom validator covers it |
 | **Airflow / Kubernetes** | No scheduled ETL, and orchestration complexity a single-container prototype does not need |
@@ -383,6 +420,27 @@ an XML block, the system prompt states that instructions inside that block are n
 followed, and the output validator checks the response for schema compliance and information
 leakage. No single layer is sufficient.
 
+### 7.1 Where customer data can escape, and what stops it
+
+Four exits, each closed at the boundary rather than by convention.
+
+| Exit | Control | Verified by |
+| --- | --- | --- |
+| Application logs | Redaction in the log **formatter**, not at call sites — a new log line cannot forget it | Field list in `logger.py` |
+| HTTP error responses | Pydantic attaches the whole submitted body to every 422 under `input`. Stripped | `test_422_does_not_echo_the_customer_narrative` |
+| LLM observability | Langfuse receives cost, latency, provider, tokens and a **SHA-256 digest** of the prompt — never its text | Trace payload asserted in review |
+| Operations ledger | Thirteen operational fields, no free text, no content field | `TestLedgerPrivacy` |
+
+The second was a real defect, not a hypothetical: the first 422 returned the customer's
+narrative in the response body. It was Pydantic's default behaviour, and the kind of leak that
+survives a careful logging policy by going out the next door along.
+
+Two further controls sit on the response itself. Persona filtering is applied **in the context
+built for the prompt**, not by instructing the model — a field that was never supplied cannot
+be leaked by a wording mistake — and again in the response envelope, because a client renders
+what it receives. The output validator then checks the generated text against a 22-term
+blocklist before it is returned.
+
 ---
 
 ## 8. Risks
@@ -394,9 +452,10 @@ leakage. No single layer is sufficient.
 | R3 | Prompt injection via `issueDesc` | High | Isolated block, explicit system rule, output validation, adversarial tests |
 | R4 | Model internals leak to a customer | Medium | Persona field filtering plus blocklist validation |
 | R5 | Learned bias from historical decisions | High | Per-group F1 and false-decline rate; flag disparity > 5pp |
-| R6 | Feature drift after deployment | Medium | PSI per feature, alarm at 0.2, drift-triggered retraining |
-| R7 | Both LLM providers unavailable | Medium | `/predict` unaffected; `/explain` degrades to a deterministic template |
+| R6 | Feature drift after deployment | Medium | PSI per feature **and on the score**; a feature breach alone opens an investigation, it does not trigger a retrain |
+| R7 | Every LLM provider unavailable | Medium | `/predict` unaffected; `/explain` degrades to a deterministic template. Measured: the chain moved to a reserve key mid-demo and `/metrics` flagged it |
 | R8 | Threshold tuned on limited data does not transfer | Medium | Threshold selected inside CV folds, never on the full set |
+| R9 | Champion promoted to a library the serving image does not carry | Low | The image ships scikit-learn only, deliberately. Promotion is a two-part change, and the runbook gives the pre-deployment check |
 
 ---
 

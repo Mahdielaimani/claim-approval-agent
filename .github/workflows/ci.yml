@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: nothing here writes to the repository.
+permissions:
+  contents: read
+
+# A superseded push has nothing to prove. Cancelling frees the runner for the commit that
+# actually matters.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  quality:
+    name: lint, types, tests
+    runs-on: ubuntu-latest
+    # No secrets are configured for this job, and that is the design: with no provider key
+    # the LLM client runs in mock mode, so the suite is free, offline and deterministic.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Ruff lint
+        run: ruff check src tests evaluation
+
+      - name: Ruff format
+        run: ruff format --check src tests evaluation
+
+      - name: Mypy
+        run: mypy src tests evaluation
+
+      # The model artefacts are not in the repository, so the integration tests skip here.
+      # Everything that describes a contract runs against stubs and does not.
+      - name: Pytest
+        run: pytest --junitxml=junit.xml
+
+      # A suite that ran nothing also exits zero. An import error in a conftest, or a
+      # skipif that silently becomes true, would otherwise read as a green build.
+      - name: Confirm the suite actually ran
+        run: |
+          python - <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          suite = ET.parse("junit.xml").getroot().find("testsuite")
+          total, skipped = int(suite.get("tests")), int(suite.get("skipped"))
+          executed = total - skipped
+          print(f"executed {executed} of {total} collected ({skipped} skipped)")
+          sys.exit(0 if executed >= 100 else 1)
+          PY
+
+  container:
+    name: docker build
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: claim-approval-agent:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Proves the image imports its dependencies and finds its configuration. It cannot
+      # prove the API serves, because no model is mounted — that is the point of the 503.
+      - name: Smoke test the image
+        run: |
+          docker run --rm claim-approval-agent:ci \
+            python -c "from src.api.app import create_app; create_app(); print('app builds')"
+
+  evaluate:
+    name: LLM evaluation
+    runs-on: ubuntu-latest
+    # Manual only. These tests call real providers, so they cost money, take seconds each,
+    # and are graded by a judge that is itself sampled. Running them per commit would make
+    # a red build mean "a provider was slow" more often than "the code is wrong".
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      # Skips cleanly when the secret is absent, so a fork without credentials is not a
+      # broken build.
+      - name: DeepEval
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: pytest -m llm_eval -v

@@ -1,0 +1,50 @@
+# Everything the image must not carry. Kept in step with .gitignore, but stricter: the build
+# context is copied wholesale, so anything omitted here ends up in a layer even if a later
+# instruction deletes it.
+
+.git/
+.github/
+
+# Secrets. The container reads its configuration from the environment at run time.
+.env
+.env.local
+*.pem
+*.key
+
+# A host virtualenv holds Windows binaries and would shadow the image's own.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+.deepeval/
+htmlcov/
+.coverage
+coverage.xml
+
+# Proprietary. The image serves a trained model; it never reads the source extract.
+data/
+
+# Training-time outputs. The model and the fitted transformers are mounted at run time,
+# not baked in: an image tied to one model version cannot be rolled forward independently.
+mlflow/
+mlruns/
+mlartifacts/
+artifacts/
+notebooks/
+
+# Development-only tooling, not on the serving path.
+tests/
+evaluation/
+postman/
+docs/
+*.md
+!README.md
+
+Dockerfile
+docker-compose.yml
+Makefile

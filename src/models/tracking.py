@@ -7,11 +7,11 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
-import pandas as pd
-
 import mlflow
 import mlflow.sklearn
+import pandas as pd
 from mlflow.models import infer_signature
+
 from src.common.logger import get_logger
 from src.common.settings import get_settings, get_training_config
 
@@ -114,7 +114,13 @@ def log_model(model: Any, name: str, *, signature_input: pd.DataFrame | None = N
         kwargs["signature"] = infer_signature(as_float)
 
     mlflow.sklearn.log_model(model, **kwargs)
-    return f"runs:/{mlflow.active_run().info.run_id}/{name}"
+
+    run = mlflow.active_run()
+    if run is None:
+        # Was an AttributeError on None: logging a model outside a run is a caller mistake,
+        # and it should say so rather than fail on attribute access two frames deeper.
+        raise RuntimeError("log_model() must be called inside an active MLflow run.")
+    return f"runs:/{run.info.run_id}/{name}"
 
 
 def log_figure(figure: Any, filename: str) -> None:

@@ -11,6 +11,12 @@ ignore = [
     "B008",   # FastAPI's Depends() in defaults is the framework's own idiom
 ]
 
+[tool.ruff.lint.isort]
+# Declared explicitly because the local MLflow store is a directory named `mlflow/`. Without
+# this, ruff classifies the import as first-party on a developer machine and third-party on a
+# clean checkout, so import order — and the CI result — depends on a gitignored folder.
+known-third-party = ["mlflow"]
+
 [tool.ruff.lint.per-file-ignores]
 # Private helpers are exercised directly to test one derivation step in isolation.
 "tests/*" = ["SLF001"]

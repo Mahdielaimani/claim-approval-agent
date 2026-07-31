@@ -83,7 +83,7 @@ class Settings(BaseSettings):
         """True when an API key is configured."""
         return bool(self.api_key)
 
-    def resolve(self, path: Path) -> Path:
+    def resolve(self, path: str | Path) -> Path:
         """Make a configured relative path absolute against the project root."""
         p = Path(path)
         return p if p.is_absolute() else (PROJECT_ROOT / p).resolve()

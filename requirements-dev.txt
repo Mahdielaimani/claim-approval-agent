@@ -1,7 +1,11 @@
 # Development, test, and evaluation tooling.
-# Install:  pip install -r requirements.txt -r requirements-dev.txt
+# Install:  pip install -r requirements-dev.txt
+#
+# Pulls the training stack too: the notebooks and `make train` need it, and a developer who
+# can run the tests but not reproduce the model has half an environment. CI installs this
+# file, which is why the container job builds from requirements.txt alone.
 
--r requirements.txt
+-r requirements-train.txt
 
 # ---- Testing ----
 pytest==8.3.4

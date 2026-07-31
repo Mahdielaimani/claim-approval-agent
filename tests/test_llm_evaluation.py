@@ -90,10 +90,12 @@ def _flatten(value: Any) -> list[str]:
     return [str(value)] if value is not None else []
 
 
-def grounding(explanation: Explanation) -> list[str]:
+def grounding(explanation: Explanation) -> list[Any]:
     """The facts the LLM was given, restated as sentences a judge can check against."""
+    # list[Any], not list[str]: DeepEval declares its context as a union list, and Python
+    # lists are invariant, so a list[str] is not accepted there.
     prediction = explanation.prediction
-    facts = [
+    facts: list[Any] = [
         f"The claim identifier is {prediction.claim_id}.",
         f"The routing outcome is: {prediction.decision}.",
         f"Human review required: {prediction.requires_human_review}.",

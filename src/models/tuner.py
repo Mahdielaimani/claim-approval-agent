@@ -74,11 +74,21 @@ def _space_logistic_regression(trial: optuna.Trial) -> dict[str, Any]:
     return {"C": trial.suggest_float("C", 1e-3, 10.0, log=True)}
 
 
+# Optuna only guarantees persistent storage for None, bool, int, float and str choices, and
+# warns on anything else. Tuples are suggested by name and mapped back here.
+_MLP_LAYERS: dict[str, tuple[int, ...]] = {
+    "32": (32,),
+    "64": (64,),
+    "64-32": (64, 32),
+    "128-64": (128, 64),
+}
+
+
 def _space_mlp(trial: optuna.Trial) -> dict[str, Any]:
     return {
-        "hidden_layer_sizes": trial.suggest_categorical(
-            "hidden_layer_sizes", [(32,), (64,), (64, 32), (128, 64)]
-        ),
+        "hidden_layer_sizes": _MLP_LAYERS[
+            trial.suggest_categorical("hidden_layer_sizes", list(_MLP_LAYERS))
+        ],
         "alpha": trial.suggest_float("alpha", 1e-5, 1e-1, log=True),
         "learning_rate_init": trial.suggest_float("learning_rate_init", 1e-4, 1e-2, log=True),
     }

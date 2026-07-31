@@ -98,7 +98,9 @@ class JsonFormatter(logging.Formatter):
 
 def configure_logging(level: str | None = None) -> None:
     """Install the JSON handler on the root logger."""
-    resolved = (level or os.getenv("LOG_LEVEL", "INFO")).upper()
+    # `or` rather than a getenv default: an empty LOG_LEVEL in .env must fall through to INFO
+    # instead of setting the root logger to "".
+    resolved = (level or os.environ.get("LOG_LEVEL") or "INFO").upper()
 
     root = logging.getLogger()
     root.setLevel(resolved)

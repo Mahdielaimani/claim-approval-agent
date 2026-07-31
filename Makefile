@@ -1,4 +1,4 @@
-.PHONY: help install install-dev eda train evaluate serve test eval-llm eval-providers lint format docker-build docker-run clean
+.PHONY: help install install-train install-dev eda train evaluate serve test eval-llm eval-providers lint format docker-build docker-run clean
 .DEFAULT_GOAL := help
 
 PY      ?= py -3.12
@@ -10,12 +10,17 @@ PORT    ?= 8000
 help:  ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
-install:  ## Create venv and install runtime dependencies
+install:  ## Create venv and install serving dependencies only
 	$(PY) -m venv $(VENV)
 	$(BIN)/python -m pip install --upgrade pip
 	$(BIN)/pip install -r requirements.txt
 
-install-dev:  ## Install runtime + test/eval/notebook tooling
+install-train:  ## Serving + training, tuning and plotting
+	$(PY) -m venv $(VENV)
+	$(BIN)/python -m pip install --upgrade pip
+	$(BIN)/pip install -r requirements-train.txt
+
+install-dev:  ## Everything, plus test/eval/notebook tooling
 	$(PY) -m venv $(VENV)
 	$(BIN)/python -m pip install --upgrade pip
 	$(BIN)/pip install -r requirements-dev.txt
